@@ -1,6 +1,6 @@
 # Agent Clinic
 
-**A small clinic's front desk, scribe, insurance desk, pharmacy and billing, run by five AI agents. A human doctor still approves every prescription. All money and safety checks are done in code.**
+**A small clinic's front desk, scribe, insurance desk, pharmacy and billing, run fully by AI agents. A human doctor still approves every prescription (human-in-the-loop for critical decisions). 
 
 ---
 
@@ -17,23 +17,16 @@ Each of these hand-offs is slow and easy to get wrong. Letting a single LLM "run
 
 ## Solution
 
-Agent Clinic splits the visit into narrow jobs. Each job is done by one agent, and a deterministic backend controls the whole flow.
+Agent Clinic splits the visit into narrow jobs. Each job is done by one agent and the autonomously hand off tasks to each other with a deterministic backend controls the whole flow.
 
 | Agent | Role | What it does |
 |---|---|---|
 | **Riley** | Receptionist | Talks with patients by voice or text on the website and at the kiosk. Books slots from the doctor's real calendar and checks patients in (name, DOB, allergies, insurance). |
-| **Ivy** | Insurance verifier | Runs in the background. Reads facts the code computed (member, plan dates, network, remaining deductible and out-of-pocket) and explains them. Ivy can make the coverage decision stricter but never looser. If she escalates, she writes down why. |
-| **Dr. Sage** | AI scribe | Listens to the consult transcript, writes the summary and a draft prescription, and proposes a history update. Also writes the doctor's daily briefing. |
+| **Ivy** | Insurance verifier | Runs async in the background after the patinet has checked-in. Reads facts the code computed (member, plan dates, network, remaining deductible and out-of-pocket) and explains them. Ivy can make the coverage decision stricter but never looser. If she escalates, she writes down why. |
+| **Dr. Sage** | AI scribe | Listens to the consultation transcript, writes the summary and a draft prescription, and proposes a history update. Also writes the doctor's daily briefing. |
 | **Pax** | Pharmacist | Checks the prescription the doctor approved against the formulary, stock, allergies and interactions, then dispenses it or flags it back to the doctor. |
-| **Penny** | Billing | Explains the invoice in plain language to the patient. She never calculates it. |
+| **Penny** | Billing | Creates the invoice and emails it to the patient with insurance coverage accounted for. |
 
-**Design rules**
-
-1. **The backend is the only controller.** Agents never call each other or any external tool. The backend gives each agent only the data its task needs, then validates the JSON reply against a Zod schema.
-2. **Anything involving money or safety is code, never AI.** That covers identity matching, insurance math, dose-to-quantity conversion, stock, prices and the invoice (all integer cents).
-3. **A human stays in the loop.** The doctor edits and saves every prescription (saving is the approval) and approves every history update.
-4. **The visit is a strict state machine.** Every status change goes through `transition()`, which rejects illegal jumps.
-5. **No mocks.** Every integration calls the real service.
 
 ## Architecture
 
@@ -140,28 +133,7 @@ supabase/
 proxy.ts                    Forwards /api/* to BACKEND_URL on frontend-only deploys
 ```
 
-## Running locally
-
-**Prerequisites:** Node 20+, a Supabase project, the Kylon CLI (`kylon auth login`) with the five agents in a clinic room, and accounts and API keys for BAND, Cal.com, n8n, Paritok and Masky.
-
-```bash
-npm install
-cp .env.example .env.local        # fill in every key; each var is documented inline
-
-# Database: run in the Supabase SQL editor, in order
-#   supabase/migrations/0001_init.sql
-#   supabase/migrations/0002_insurance.sql
-#   supabase/migrations/0003_coverage_escalation_reason.sql
-#   supabase/seed.sql
-
-npm run dev                       # http://localhost:3000
-npm run typecheck
-```
-
-Use `GET /api/health` to check the server is up, and `POST /api/kylon/ping` to check that the agents reply.
-
-Live transcription needs Chrome or Safari. In other browsers you can type the conversation instead.
 
 ## Team
 
-Built at the hackathon by **Harish Thangaraj** and team.
+Built at the Universal hackathon at SF.
