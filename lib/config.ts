@@ -44,12 +44,6 @@ export const config = {
     sharedSecret: env("N8N_SHARED_SECRET"),
   },
 
-  rocketride: {
-    uri: env("ROCKETRIDE_URI"),
-    apiKey: env("ROCKETRIDE_APIKEY"),
-    pipelineToken: env("ROCKETRIDE_PIPELINE_TOKEN"), // the deployed rx-safety pipeline
-  },
-
   adal: {
     eligibilityUrl: env("ADAL_ELIGIBILITY_URL"),
     memoryUrl: env("ADAL_MEMORY_URL"),
@@ -62,8 +56,8 @@ export const config = {
   },
 
   paritok: {
-    apiUrl: env("PARITOK_API_URL"),
-    apiKey: env("PARITOK_API_KEY"),
+    apiUrl: env("PARITOK_API_URL") ?? "https://www.paritok.com/api/compress",
+    apiKey: env("PARITOK_API_KEY"), // pk_live_… from paritok.com → dashboard → API keys
   },
 
   finch: {
@@ -83,7 +77,7 @@ export const config = {
     voice: (agent: string) => env(`MASKY_VOICE_${agent.toUpperCase()}`),
   },
 
-  // Staff routes (doctor approve/reject etc.) require `authorization: Bearer <token>` when set.
+  // Staff routes (doctor edit/approve etc.) require `authorization: Bearer <token>` when set.
   staffToken: env("CLINIC_STAFF_TOKEN"),
 };
 

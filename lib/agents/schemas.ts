@@ -5,7 +5,7 @@
  * (not optional) so the same schemas work as structured-output formats; replies from Kylon
  * that leave nullable/array fields out are filled in by runAgent before validation.
  *
- * Agents never decide money or safety: the backend recomputes stock, prices, allergy blocks
+ * Agents never decide money: the backend recomputes stock, prices
  * and the invoice in code, whatever an agent replies.
  */
 import { z } from "zod";
@@ -32,6 +32,16 @@ export const RileyReply = z.object({
     })
     .nullable()
     .describe("Details the patient gave. Required for book and verify_identity."),
+  allergies: z
+    .array(
+      z.object({
+        substance: z.string().describe('Drug, generic or class, e.g. "penicillin".'),
+        severity: z.enum(["mild", "moderate", "severe"]),
+        reaction: z.string().nullable(),
+      }),
+    )
+    .nullable()
+    .describe("Check-in only: allergies the patient reported. [] = patient said none; null = not asked yet. Required for verify_identity."),
 });
 export type RileyReply = z.infer<typeof RileyReply>;
 
@@ -47,7 +57,7 @@ export const SageRxItem = z.object({
 
 export const SageDraft = z.object({
   rx: z.array(SageRxItem).describe("Empty if no prescription is needed."),
-  reasoning: z.string().describe("Why this prescription; when revising, what changed and why."),
+  reasoning: z.string().describe("Why this prescription, tied to what was said in the consult."),
   needs_human_approval: z.boolean().describe("Always true."),
   visit_type: z.enum(["new_patient", "follow_up", "urgent"]).nullable(),
   procedures: z.array(z.string()).describe("Procedure keys from known_procedures that were performed."),
@@ -83,11 +93,11 @@ export type IvyDecision = z.infer<typeof IvyDecision>;
 
 export const PaxReview = z.object({
   status: z.enum(["cleared", "flagged"]),
-  issues: z.array(z.string()).describe("One clear reason per problem, for Dr. Sage."),
+  issues: z.array(z.string()).describe("One clear reason per problem (not on the formulary, not enough stock), for the doctor."),
   dispensed: z
     .array(z.object({ drug: z.string(), qty: z.number(), price_cents: z.number() }))
     .describe("What you dispense when status is cleared; otherwise empty."),
-  explanation: z.string().nullable().describe("Plain-language explanation for Dr. Sage."),
+  explanation: z.string().nullable().describe("Plain-language explanation for the doctor."),
   recommendation: z.string().nullable().describe("Concrete fix, using the listed alternatives."),
 });
 export type PaxReview = z.infer<typeof PaxReview>;

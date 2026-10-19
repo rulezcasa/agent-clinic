@@ -2,14 +2,13 @@
  * The visit, step by step (see tools.md). The backend is the only controller: it gives each
  * agent just the data its task needs, validates the JSON reply, and moves the visit.
  *
- * Two things are always code, never AI: the severe allergy block and the invoice math.
+ * Always code, never AI: stock and prices, and the invoice math.
  */
 import { IvyDecision, PaxReview, PennyNote, RileyReply, SageBriefing, SageDraft } from "@/lib/agents/schemas";
 import { runAgent } from "@/lib/agents/run";
 import { config } from "@/lib/config";
 import { repo } from "@/lib/db";
 import { HttpError, notFound } from "@/lib/http";
-import { severeAllergyBlock } from "@/lib/rules/allergy";
 import { findDrug } from "@/lib/rules/formulary";
 import { verifyIdentity } from "@/lib/rules/identity";
 import { computeInvoice, formatCents } from "@/lib/rules/invoice";
@@ -21,12 +20,8 @@ import { speak } from "@/lib/tools/masky";
 import { billingLines } from "@/lib/tools/finch";
 import { sendInvoiceEmail } from "@/lib/tools/n8n";
 import { compressContext } from "@/lib/tools/paritok";
-import { runRxSafety } from "@/lib/tools/rocketride";
-import type { Coverage, CoverageStatus, DispensedItem, Drug, Patient, RxIssue, RxItem, Visit } from "@/lib/types";
+import type { Allergy, Coverage, CoverageStatus, DispensedItem, Patient, RxIssue, RxItem, Visit } from "@/lib/types";
 import { transition } from "./status";
-
-/** How many times Dr. Sage revises on its own after a flag before the human doctor steps in. */
-const AUTO_REVISIONS = 2;
 
 async function loadVisit(id: string): Promise<Visit> {
   const v = await repo.getVisit(id);
@@ -48,7 +43,7 @@ export type Desk = "booking" | "checkin";
 const DESK_INSTRUCTION: Record<Desk, string> = {
   booking: "Reply to the patient on the clinic website. They want to book an appointment.",
   checkin:
-    "Reply to the patient at the clinic's check-in desk. They are here for a booked appointment: ask for their full name and date of birth, then use action verify_identity.",
+    "Reply to the patient at the clinic's check-in desk. They are here for a booked appointment: ask for their full name and date of birth, and whether they have any allergies (what to, the reaction, and how severe). Once you have all of it, use action verify_identity with the allergies ([] if none).",
 };
 
 export async function chatTurn(input: { session_id?: string; message: string; desk: Desk }) {
@@ -90,7 +85,9 @@ export async function chatTurn(input: { session_id?: string; message: string; de
     await bookFromChat(session.id, riley, slots);
   } else if (riley.action === "verify_identity") {
     if (!riley.patient) throw new Error("Riley asked to verify identity without name + DOB");
-    const res = await checkIn({ visit, claimed: riley.patient, sessionId: session.id });
+    if (!riley.allergies) throw new Error("Riley asked to verify identity without asking about allergies");
+    const allergies = riley.allergies.map(({ reaction, ...a }) => ({ ...a, ...(reaction ? { reaction } : {}) }));
+    const res = await checkIn({ visit, claimed: riley.patient, allergies, sessionId: session.id });
     current = res.visit;
     checkedIn = res.verified;
     // Code decides identity, so the patient hears the code's answer.
@@ -144,7 +141,19 @@ export async function createVisitFromBooking(b: { uid: string; start: string; pa
 }
 
 /** Step 4–5: identity check (code), then the intake packet goes to Ivy and Dr. Sage on BAND. */
-export async function checkIn(input: { visit: Visit | null; claimed: { full_name: string; dob: string }; sessionId?: string }) {
+/** Reported allergies win over recorded ones for the same substance; "none" never erases the record. */
+function mergeAllergies(recorded: Allergy[], reported: Allergy[]): Allergy[] {
+  const key = (a: Allergy) => a.substance.trim().toLowerCase();
+  const reportedKeys = new Set(reported.map(key));
+  return [...recorded.filter((a) => !reportedKeys.has(key(a))), ...reported];
+}
+
+export async function checkIn(input: {
+  visit: Visit | null;
+  claimed: { full_name: string; dob: string };
+  allergies?: Allergy[];
+  sessionId?: string;
+}) {
   let visit = input.visit;
   if (!visit) {
     // Patient arrived in a new chat: find their booked visit by name + DOB.
@@ -152,9 +161,11 @@ export async function checkIn(input: { visit: Visit | null; claimed: { full_name
     visit = p ? ((await repo.listVisits({ patient_id: p.id, status: ["BOOKED"] }))[0] ?? null) : null;
     if (!visit) return { verified: false, visit: null };
   }
-  const patient = await loadPatient(visit.patient_id);
+  let patient = await loadPatient(visit.patient_id);
   if (visit.status !== "BOOKED" || !verifyIdentity(patient, input.claimed).verified) return { verified: false, visit };
 
+  // Only after identity matches, so a wrong name + DOB never writes to someone's record.
+  if (input.allergies?.length) patient = await repo.updatePatient(patient.id, { allergies: mergeAllergies(patient.allergies, input.allergies) });
   visit = await transition(visit, "CHECKED_IN", { identity_verified: true });
   if (input.sessionId) await repo.updateSession(input.sessionId, { visit_id: visit.id, patient_id: patient.id });
   await publishHandoff({
@@ -162,7 +173,7 @@ export async function checkIn(input: { visit: Visit | null; claimed: { full_name
     to: ["ivy", "sage"],
     visit_id: visit.id,
     kind: "intake",
-    payload: { patient_id: patient.id, identity_verified: true, complaint: visit.reason, slot_start: visit.slot_start },
+    payload: { patient_id: patient.id, identity_verified: true, complaint: visit.reason, slot_start: visit.slot_start, allergies: patient.allergies },
   });
   return { verified: true, visit };
 }
@@ -220,141 +231,118 @@ async function saveCoverage(visitId: string, coverage: Coverage, from: "ivy" | "
   return tryInvoice(visitId);
 }
 
-// ---------- 7–9. Consult → Dr. Sage drafts → RocketRide + allergy check → human approval → Pax ----------
+// ---------- 7–9. Consult → Dr. Sage drafts → doctor edits and saves (= approves) → Pax ----------
 
-interface Revision {
-  previous_rx: RxItem[];
-  issues: RxIssue[];
-  pharmacist_note: string | null;
-  doctor_feedback: string | null;
-}
-
-/** The human doctor saves consult notes; Dr. Sage drafts and the safety check runs. */
-export async function startConsult(visitId: string, notes: string) {
-  const visit = await transition(await loadVisit(visitId), "IN_CONSULT", { consult_notes: notes });
-  return draftAndCheck(visit, null, AUTO_REVISIONS);
-}
-
-async function draftAndCheck(visit: Visit, revision: Revision | null, autoLeft: number): Promise<Visit> {
+/**
+ * The doctor clicks "Generate prescription": Dr. Sage drafts once from the consult transcript it listened to.
+ * The transcript itself isn't stored; Dr. Sage's summary becomes the consult notes. IN_CONSULT again = retry a draft that failed.
+ */
+export async function startConsult(visitId: string, transcript: string) {
+  const current = await loadVisit(visitId);
+  let visit = current.status === "IN_CONSULT" ? current : await transition(current, "IN_CONSULT");
   const patient = await loadPatient(visit.patient_id);
   const [formulary, notes] = await Promise.all([repo.listDrugs(), repo.listMemoryNotes(patient.id)]);
   const history = await compressContext([patient.history, ...notes.map((n) => n.note)].filter(Boolean).join("\n"));
 
   const sage = await runAgent({
     agent: "sage",
-    kind: revision ? "revise_rx" : "draft_rx",
-    instruction: revision ? "Revise the prescription to resolve every issue and explain the change." : "Review the intake and draft a prescription.",
+    kind: "draft_rx",
+    instruction:
+      "You listened to this consult between the human doctor and the patient. consult_transcript is the raw speech-to-text, with no speaker labels: work out who is the doctor and who is the patient, then draft the prescription the doctor decided on.",
     data: {
-      intake: { complaint: visit.reason, consult_notes: visit.consult_notes },
+      intake: { complaint: visit.reason, consult_transcript: transcript },
       compressed_history: history,
       allergies: patient.allergies.map(({ substance, severity }) => ({ substance, severity })),
       formulary: formulary.map((d) => ({ name: d.name, generic: d.generic, drug_class: d.drug_class, indication: d.indication })), // stock is Pax's job
       visit_type: visit.visit_type,
-      revision,
     },
     schema: SageDraft,
     visitId: visit.id,
   });
 
   const fields: Partial<Visit> = {
+    consult_notes: sage.summary,
     procedures: sage.procedures,
     visit_type: sage.visit_type ?? visit.visit_type,
     history_update: sage.history_update,
   };
 
   // No prescription: nothing to approve or dispense.
-  if (!sage.rx.length && visit.status === "IN_CONSULT") {
+  if (!sage.rx.length) {
     visit = await transition(visit, "DISPENSED", { ...fields, dispensed: [] });
     return tryInvoice(visit.id);
   }
 
   const items: RxItem[] = sage.rx.map((i) => ({ drug: i.drug, dose: i.dose, frequency: i.frequency, days: i.days, quantity: deriveQuantity(i) }));
-  visit = await transition(visit, "RX_DRAFTED", {
-    ...fields,
-    rx: { items, notes: sage.reasoning, summary: sage.summary ?? "", revision: (visit.rx?.revision ?? -1) + 1 },
-    rx_safety: null,
-    rx_approved_by: null,
-    rx_approved_at: null,
-  });
-  return checkRx(visit, patient, formulary, autoLeft);
+  visit = await transition(visit, "RX_DRAFTED", { ...fields, rx: { items, notes: sage.reasoning, summary: sage.summary ?? "", revision: 0 } });
+  // The doctor sees it with the patient's allergies listed for reference, edits if needed, and saves.
+  visit = await transition(visit, "RX_PENDING_APPROVAL", { rx_safety: null });
+  await publishHandoff({ from: "sage", to: ["doctor"], visit_id: visit.id, kind: "rx_approval_request", payload: { rx: items } });
+  return visit;
 }
 
-/** Before approval: RocketRide rx-safety + the code severe-allergy block. Stock is checked by Pax after approval. */
-async function checkRx(visit: Visit, patient: Patient, formulary: Drug[], autoLeft: number): Promise<Visit> {
-  const items = visit.rx!.items;
-  const safety = await runRxSafety({ allergies: patient.allergies, formulary, items });
-  const issues = [...safety.issues, ...allergyBackstop(patient, items, formulary, safety.issues)];
-  const blocked = issues.some((i) => i.severity === "block");
-  const rx_safety = { status: blocked ? ("blocked" as const) : issues.length ? ("flagged" as const) : ("clear" as const), issues, source: safety.source };
+export type EditedRxItem = Omit<RxItem, "quantity"> & { quantity: number | null };
 
-  if (!blocked) {
-    visit = await transition(visit, "RX_PENDING_APPROVAL", { rx_safety });
-    await publishHandoff({ from: "sage", to: ["doctor"], visit_id: visit.id, kind: "rx_approval_request", payload: { rx: items, rx_safety } });
-    return visit;
-  }
-
-  visit = await transition(visit, "RX_FLAGGED", { rx_safety });
-  await publishHandoff({ from: "backend", to: ["sage"], visit_id: visit.id, kind: "rx_flag", payload: { ...rx_safety } });
-  if (autoLeft <= 0) return visit; // the human doctor decides next (reject with feedback → Dr. Sage redrafts)
-  return draftAndCheck(visit, { previous_rx: items, issues, pharmacist_note: null, doctor_feedback: null }, autoLeft - 1);
-}
-
-/** SEVERE ALLERGY BLOCK (code): add any severe-allergy hit the pipeline missed. */
-function allergyBackstop(patient: Patient, items: RxItem[], formulary: Drug[], found: RxIssue[]): RxIssue[] {
-  return severeAllergyBlock(patient.allergies, items, formulary)
-    .hits.filter((h) => !found.some((i) => i.kind === "allergy" && i.drug === h.drug && i.severity === "block"))
-    .map((h) => ({ kind: "allergy", drug: h.drug, detail: `Patient has a severe allergy to ${h.allergy}.`, severity: "block", alternatives: [] }));
-}
-
-/** Step 9: the human doctor approves → Pax dispenses. */
-export async function approveRx(visitId: string, approvedBy: string) {
+/**
+ * Step 9: the doctor saves the prescription as edited — saving is the approval → handoff to Pax on BAND
+ * → Pax checks formulary + stock and dispenses.
+ */
+export async function approveRx(visitId: string, approvedBy: string, edited: EditedRxItem[]) {
   let visit = await loadVisit(visitId);
-  if (visit.status !== "RX_PENDING_APPROVAL") throw new HttpError(409, `visit is ${visit.status}, not RX_PENDING_APPROVAL`);
-  const patient = await loadPatient(visit.patient_id);
+  if (visit.status !== "RX_PENDING_APPROVAL" && visit.status !== "RX_FLAGGED") throw new HttpError(409, `visit is ${visit.status}`);
   const formulary = await repo.listDrugs();
-  const items = visit.rx!.items;
-  if (severeAllergyBlock(patient.allergies, items, formulary).blocked) throw new HttpError(409, "severe allergy: this prescription cannot be approved");
+  const items: RxItem[] = edited.map((i) => ({ ...i, quantity: deriveQuantity(i) }));
 
-  visit = await transition(visit, "RX_APPROVED", { rx_approved_by: approvedBy, rx_approved_at: new Date().toISOString() });
+  visit = await transition(visit, "RX_APPROVED", {
+    rx: { items, notes: visit.rx?.notes ?? "", summary: visit.rx?.summary ?? "", revision: (visit.rx?.revision ?? 0) + 1 },
+    rx_approved_by: approvedBy,
+    rx_approved_at: new Date().toISOString(),
+  });
+  await publishHandoff({
+    from: "doctor",
+    to: ["pax"],
+    visit_id: visit.id,
+    kind: "rx_approved",
+    payload: { rx: items, approved_by: approvedBy, summary: visit.rx?.summary ?? "" },
+  });
 
   const pax = await runAgent({
     agent: "pax",
     kind: "dispense",
-    instruction: "The doctor approved this prescription. Check stock and dispense, or flag problems back to Dr. Sage.",
-    data: { rx: items, issues: visit.rx_safety?.issues ?? [], formulary: formulary.map(({ name, price_cents, stock_qty }) => ({ name, price_cents, stock_qty })) },
+    instruction:
+      "The doctor approved this prescription. Check every drug is on the formulary and has enough stock for the quantity. If so, dispense. If not, flag each problem for the doctor with alternatives from the formulary.",
+    data: {
+      rx: items,
+      formulary: formulary.map(({ name, generic, indication, price_cents, stock_qty }) => ({ name, generic, indication, price_cents, stock_qty })),
+    },
     schema: PaxReview,
     visitId: visit.id,
   });
 
-  if (pax.status === "flagged") {
-    const issues = pax.issues.map((detail): RxIssue => ({ kind: "pharmacist", drug: "", detail, severity: "block", alternatives: [] }));
-    visit = await transition(visit, "RX_FLAGGED", { rx_safety: { status: "flagged", issues, source: "pax", explanation: pax.explanation ?? undefined } });
-    await publishHandoff({ from: "pax", to: ["sage"], visit_id: visit.id, kind: "rx_flag", payload: { issues } });
-    return draftAndCheck(visit, { previous_rx: items, issues, pharmacist_note: pax.explanation, doctor_feedback: null }, AUTO_REVISIONS);
+  // Stock and prices are code: Pax's "cleared" still has to hold against the formulary.
+  const resolved = items.map((item) => ({ item, drug: findDrug(formulary, item.drug) }));
+  const missed = resolved.flatMap(({ item, drug }) =>
+    !drug ? [`${item.drug} is not on the formulary.`] : drug.stock_qty < item.quantity ? [`Only ${drug.stock_qty} ${drug.name} in stock, ${item.quantity} needed.`] : [],
+  );
+  const problems = pax.status === "flagged" ? pax.issues : missed;
+
+  if (problems.length) {
+    const issues = problems.map((detail): RxIssue => ({ kind: "pharmacist", drug: "", detail, severity: "warn", alternatives: [] }));
+    visit = await transition(visit, "RX_FLAGGED", {
+      rx_safety: { status: "flagged", issues, source: "pax", explanation: pax.explanation ?? undefined, recommendation: pax.recommendation ?? undefined },
+    });
+    await publishHandoff({ from: "pax", to: ["doctor"], visit_id: visit.id, kind: "rx_flag", payload: { issues, recommendation: pax.recommendation } });
+    return visit; // the doctor edits and saves again
   }
 
-  // Stock and prices are code: take stock from the formulary, never from Pax's numbers.
   const dispensed: DispensedItem[] = [];
-  for (const item of items) {
-    const drug = findDrug(formulary, item.drug);
-    if (!drug) throw new Error(`${item.drug} is not on the formulary`);
-    if (!(await repo.takeStock(drug.id, item.quantity))) throw new Error(`not enough ${drug.name} in stock`);
-    dispensed.push({ drug_id: drug.id, name: drug.name, quantity: item.quantity, unit_price_cents: drug.price_cents });
+  for (const { item, drug } of resolved) {
+    if (!(await repo.takeStock(drug!.id, item.quantity))) throw new Error(`not enough ${drug!.name} in stock`);
+    dispensed.push({ drug_id: drug!.id, name: drug!.name, quantity: item.quantity, unit_price_cents: drug!.price_cents });
   }
   visit = await transition(visit, "DISPENSED", { dispensed });
   await publishHandoff({ from: "pax", to: ["penny"], visit_id: visit.id, kind: "dispensed", payload: { dispensed } });
   return tryInvoice(visit.id);
-}
-
-/** The human doctor sends the Rx back to Dr. Sage with feedback. */
-export async function rejectRx(visitId: string, feedback: string) {
-  const visit = await loadVisit(visitId);
-  if (visit.status !== "RX_PENDING_APPROVAL" && visit.status !== "RX_FLAGGED") throw new HttpError(409, `visit is ${visit.status}`);
-  return draftAndCheck(
-    visit,
-    { previous_rx: visit.rx?.items ?? [], issues: visit.rx_safety?.issues ?? [], pharmacist_note: visit.rx_safety?.explanation ?? null, doctor_feedback: feedback },
-    AUTO_REVISIONS,
-  );
 }
 
 // ---------- 10–12. Invoice → email → memory note → closed ----------
@@ -393,7 +381,7 @@ async function tryInvoice(visitId: string): Promise<Visit> {
 }
 
 function visitSummary(v: Visit): string {
-  const flags = v.rx_safety?.issues.filter((i) => i.severity === "block").map((i) => `${i.drug}: ${i.detail}`) ?? [];
+  const flags = v.rx_safety?.issues.map((i) => `${i.drug || i.kind}: ${i.detail}`) ?? [];
   return [
     `Visit ${v.slot_start?.slice(0, 10) ?? ""} (${v.visit_type}). Reason: ${v.reason ?? "n/a"}.`,
     v.rx?.summary && `Summary: ${v.rx.summary}`,
@@ -434,7 +422,7 @@ export async function waitingForDoctor() {
   const visits = await repo.listVisits();
   return visits.flatMap((v) => [
     ...(v.status === "RX_PENDING_APPROVAL" ? [{ visit_id: v.id, item: "approve prescription" }] : []),
-    ...(v.status === "RX_FLAGGED" ? [{ visit_id: v.id, item: "prescription still flagged after revisions" }] : []),
+    ...(v.status === "RX_FLAGGED" ? [{ visit_id: v.id, item: "pharmacy flagged the prescription" }] : []),
     ...(v.coverage_status === "ESCALATED" ? [{ visit_id: v.id, item: "resolve ambiguous coverage" }] : []),
     ...(v.history_update && !v.history_update_approved && v.status !== "CANCELLED" ? [{ visit_id: v.id, item: "approve history update" }] : []),
   ]);

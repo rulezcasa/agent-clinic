@@ -91,14 +91,14 @@ export interface RxIssue {
   kind: RxIssueKind;
   drug: string;
   detail: string;
-  severity: "block" | "warn";
+  severity: "warn"; // warnings only: the doctor decides
   alternatives: string[];
 }
 
 export interface RxSafetyResult {
-  status: "clear" | "flagged" | "blocked";
+  status: "clear" | "flagged";
   issues: RxIssue[];
-  source: string; // "rocketride" or "pax"
+  source: string; // "code" or "pax"
   explanation?: string; // Pax's plain-language summary
   recommendation?: string;
 }

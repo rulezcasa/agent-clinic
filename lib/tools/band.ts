@@ -10,7 +10,7 @@ import { repo } from "@/lib/db";
 import type { AgentName } from "@/lib/types";
 
 export interface HandoffPacket {
-  from: AgentName | "backend";
+  from: AgentName | "backend" | "doctor";
   to: (AgentName | "doctor")[];
   visit_id: string;
   kind: string; // e.g. "intake", "rx_check", "coverage_result", "dispensed"

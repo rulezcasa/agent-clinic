@@ -4,11 +4,11 @@ import { startConsult } from "@/lib/visit/flow";
 
 export const maxDuration = 300;
 
-const Body = z.object({ notes: z.string().min(1) });
+const Body = z.object({ transcript: z.string().min(1) });
 
-/** Human doctor's consult notes → Dr. Sage drafts → RocketRide + Pax check → waits for approval. */
+/** "Generate prescription": the consult transcript → Dr. Sage drafts (its summary is saved as the consult notes) → waits for the doctor. */
 export const POST = route(async (req: Request, ctx: { params: Promise<{ id: string }> }) => {
   requireStaff(req);
   const { id } = await ctx.params;
-  return startConsult(id, (await readBody(req, Body)).notes);
+  return startConsult(id, (await readBody(req, Body)).transcript);
 });

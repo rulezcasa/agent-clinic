@@ -93,3 +93,103 @@ body {
 .bar button.mic { background: var(--accent); color: #fff; border-color: var(--accent); }
 .bar button.mic.on { background: var(--error); border-color: var(--error); }
 .bar button:disabled { opacity: 0.5; cursor: default; }
+
+/* ---------- Doctor's room ---------- */
+
+.desk.wide { max-width: 1100px; }
+
+.clinic {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 760px) { .clinic { grid-template-columns: 1fr; } }
+
+.muted { color: var(--muted); }
+.err { color: var(--error); }
+
+.queue { display: flex; flex-direction: column; gap: 6px; }
+.clinic[hidden] { display: none; }
+.queue-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.queue-head h1 { font-size: 18px; margin: 0; }
+.queue .queue-head button { padding: 4px 10px; font-size: 14px; }
+.queue button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  font: inherit;
+  cursor: pointer;
+}
+.queue button.on { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.queue button span { font-size: 14px; }
+.queue button small { color: var(--muted); }
+
+.room { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.room.empty { padding: 48px 0; text-align: center; }
+.room header h1 { font-size: 20px; margin: 0; }
+.room header small { display: block; color: var(--muted); }
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.panel h2 { font-size: 16px; margin: 0; }
+.panel p { margin: 0; }
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+.listen { font-size: 13px; color: var(--muted); }
+.listen.on { color: var(--accent); font-weight: 600; }
+
+.room .log { height: 340px; flex: none; background: var(--bg); }
+.line.interim { color: var(--muted); font-style: italic; }
+
+.room .bar form { flex: 1; min-width: 0; display: flex; }
+.room .bar form input { width: 100%; }
+
+.room button.primary, .room .row button, .room .bar button {
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  font: inherit;
+  cursor: pointer;
+}
+.room button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.room button:disabled { opacity: 0.5; cursor: default; }
+.room button.link { border: 0; background: none; color: var(--muted); font: inherit; cursor: pointer; }
+
+.actions { display: flex; justify-content: flex-end; gap: 8px; }
+.row { display: flex; gap: 8px; }
+.row input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font: inherit;
+}
+
+.panel table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.panel th, .panel td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.panel th { color: var(--muted); font-weight: 500; }
+
+
+.issues { margin: 0; padding-left: 0; list-style: none; font-size: 14px; color: #92400e; }
+.panel td input { width: 100%; min-width: 60px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+.panel td:first-child input { min-width: 140px; }
+
+.approve { padding-top: 10px; border-top: 1px solid var(--line); }

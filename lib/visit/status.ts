@@ -2,8 +2,9 @@
  * Visit status machine. The backend is the only thing that moves a visit;
  * every move goes through `transition()` which refuses illegal jumps.
  *
- *   BOOKED → CHECKED_IN → IN_CONSULT → RX_DRAFTED → (RX_FLAGGED ⇄ RX_DRAFTED) → RX_PENDING_APPROVAL
- *        → RX_APPROVED → DISPENSED → INVOICED → CLOSED
+ *   BOOKED → CHECKED_IN → IN_CONSULT → RX_DRAFTED → RX_PENDING_APPROVAL → RX_APPROVED → DISPENSED → INVOICED → CLOSED
+ *
+ * Pax flags a problem on RX_APPROVED → RX_FLAGGED; the doctor edits and saves again (RX_FLAGGED → RX_APPROVED).
  *
  * A visit with no prescription goes IN_CONSULT → DISPENSED (nothing to dispense) so invoicing is uniform.
  * Coverage runs in parallel on its own field (coverage_status) and never blocks the visit,
@@ -16,10 +17,9 @@ const ALLOWED: Record<VisitStatus, VisitStatus[]> = {
   BOOKED: ["CHECKED_IN", "CANCELLED"],
   CHECKED_IN: ["IN_CONSULT", "CANCELLED"],
   IN_CONSULT: ["RX_DRAFTED", "DISPENSED", "CANCELLED"],
-  RX_DRAFTED: ["RX_FLAGGED", "RX_PENDING_APPROVAL", "CANCELLED"],
-  RX_FLAGGED: ["RX_DRAFTED", "CANCELLED"],
-  // human rejects → Dr. Sage redrafts
-  RX_PENDING_APPROVAL: ["RX_APPROVED", "RX_DRAFTED", "CANCELLED"],
+  RX_DRAFTED: ["RX_PENDING_APPROVAL", "CANCELLED"],
+  RX_FLAGGED: ["RX_APPROVED", "CANCELLED"],
+  RX_PENDING_APPROVAL: ["RX_APPROVED", "CANCELLED"],
   RX_APPROVED: ["DISPENSED", "RX_FLAGGED"],
   DISPENSED: ["INVOICED"],
   INVOICED: ["CLOSED"],

@@ -1,13 +1,16 @@
 "use client";
 
 /**
- * Patient front desk — one tab per agent task. Riley handles both booking and check-in;
- * both chats stay mounted so switching tabs keeps each conversation.
+ * Clinic demo — one tab per agent task. Riley handles booking and check-in; the doctor's room
+ * is where the consult happens. Every tab stays mounted so switching keeps its state.
  */
 import { useState } from "react";
+import DoctorRoom from "./_components/doctor-room";
 import RileyChat, { type Desk } from "./_components/riley-chat";
 
-const TABS: { desk: Desk; label: string; title: string; intro: string }[] = [
+type Tab = Desk | "doctor";
+
+const RILEY_TABS: { desk: Desk; label: string; title: string; intro: string }[] = [
   {
     desk: "booking",
     label: "Appointment booking",
@@ -23,20 +26,22 @@ const TABS: { desk: Desk; label: string; title: string; intro: string }[] = [
 ];
 
 export default function FrontDesk() {
-  const [tab, setTab] = useState<Desk>("booking");
+  const [tab, setTab] = useState<Tab>("booking");
+  const tabs: { id: Tab; label: string }[] = [...RILEY_TABS.map((t) => ({ id: t.desk, label: t.label })), { id: "doctor", label: "Doctor" }];
 
   return (
-    <main className="desk">
+    <main className={`desk${tab === "doctor" ? " wide" : ""}`}>
       <nav className="tabs" role="tablist">
-        {TABS.map((t) => (
-          <button key={t.desk} role="tab" aria-selected={tab === t.desk} className={tab === t.desk ? "on" : ""} onClick={() => setTab(t.desk)}>
+        {tabs.map((t) => (
+          <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? "on" : ""} onClick={() => setTab(t.id)}>
             {t.label}
           </button>
         ))}
       </nav>
-      {TABS.map((t) => (
+      {RILEY_TABS.map((t) => (
         <RileyChat key={t.desk} desk={t.desk} title={t.title} intro={t.intro} active={tab === t.desk} />
       ))}
+      <DoctorRoom active={tab === "doctor"} />
     </main>
   );
 }

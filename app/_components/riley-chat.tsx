@@ -5,6 +5,7 @@
  * The patient talks (browser speech recognition) or types; Riley's reply plays from audio_url (Masky).
  */
 import { useEffect, useRef, useState } from "react";
+import { speechRecognition, type Recognition, type RecognitionCtor } from "./speech";
 
 export type Desk = "booking" | "checkin";
 
@@ -20,19 +21,6 @@ interface ChatResponse {
   error?: string;
 }
 
-// Minimal Web Speech API types (not in TypeScript's DOM lib).
-interface Recognition {
-  lang: string;
-  continuous: boolean;
-  interimResults: boolean;
-  onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }> }) => void) | null;
-  onend: (() => void) | null;
-  onerror: ((e: { error: string }) => void) | null;
-  start(): void;
-  stop(): void;
-}
-type RecognitionCtor = new () => Recognition;
-
 /** How long the patient can pause before their turn is sent. */
 const SILENCE_MS = 2500;
 
@@ -45,25 +33,24 @@ export default function RileyChat({ desk, title, intro, active }: { desk: Desk; 
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [listening, setListening] = useState(false);
+  const [speaking, setSpeaking] = useState(false); // Riley's voice is playing
   const [voice, setVoice] = useState<RecognitionCtor | null>(null);
 
   const audio = useRef<HTMLAudioElement | null>(null);
-  const recognition = useRef<Recognition | null>(null);
+  const recognition = useRef<{ cancel(): void } | null>(null); // the open mic, if any
   const session = useRef<string | null>(null); // a ref, so hands-free turns started from old closures keep the session
   const handsFree = useRef(false); // patient used the mic last → listen again after Riley speaks
   const log = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const w = window as unknown as { SpeechRecognition?: RecognitionCtor; webkitSpeechRecognition?: RecognitionCtor };
-    setVoice(() => w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null);
+    setVoice(() => speechRecognition());
     audio.current = new Audio();
   }, []);
 
   // Leaving the tab: stop listening and talking (the chat itself stays).
   useEffect(() => {
     if (active) return;
-    handsFree.current = false;
-    recognition.current?.stop();
+    stopListening();
     audio.current?.pause();
   }, [active]);
 
@@ -85,10 +72,16 @@ export default function RileyChat({ desk, title, intro, active }: { desk: Desk; 
     const a = audio.current;
     if (!a) return;
     a.src = url;
+    a.onpause = () => setSpeaking(false); // also fires when stopped early
     a.onended = () => {
+      setSpeaking(false);
       if (handsFree.current) listen();
     };
-    a.play().catch((err) => add({ from: "error", text: `Couldn't play Riley's voice: ${err.message}` }));
+    setSpeaking(true);
+    a.play().catch((err) => {
+      setSpeaking(false);
+      add({ from: "error", text: `Couldn't play Riley's voice: ${err.message}` });
+    });
   }
 
   async function send(text: string) {
@@ -118,6 +111,12 @@ export default function RileyChat({ desk, title, intro, active }: { desk: Desk; 
     }
   }
 
+  /** Patient took over (■, new chat, left the tab): close the mic, keep what was heard in the box, don't send or re-listen. */
+  function stopListening() {
+    handsFree.current = false;
+    recognition.current?.cancel();
+  }
+
   function listen() {
     if (!voice || busy) return;
     audio.current?.pause();
@@ -127,6 +126,7 @@ export default function RileyChat({ desk, title, intro, active }: { desk: Desk; 
     r.continuous = true;
     r.interimResults = true;
     let heard = "";
+    let cancelled = false;
     let silence: ReturnType<typeof setTimeout> | undefined;
     r.onresult = (e) => {
       heard = Array.from(e.results).map((res) => res[0].transcript).join("");
@@ -141,17 +141,24 @@ export default function RileyChat({ desk, title, intro, active }: { desk: Desk; 
       clearTimeout(silence);
       setListening(false);
       recognition.current = null;
-      if (heard.trim()) send(heard);
+      if (!cancelled && heard.trim()) send(heard);
     };
-    recognition.current = r;
+    recognition.current = {
+      cancel() {
+        cancelled = true;
+        r.abort();
+      },
+    };
     setListening(true);
     r.start();
   }
 
   function toggleMic() {
     unlockAudio();
-    if (listening) {
-      recognition.current?.stop();
+    if (listening || speaking) {
+      // ■ stops the mic and Riley's voice; then the patient can type.
+      stopListening();
+      audio.current?.pause();
       return;
     }
     handsFree.current = true;
@@ -166,9 +173,9 @@ export default function RileyChat({ desk, title, intro, active }: { desk: Desk; 
   }
 
   function newChat() {
-    recognition.current?.stop();
+    stopListening();
     audio.current?.pause();
-    handsFree.current = false;
+    setDraft("");
     session.current = null;
     setSessionId(null);
     setLines([{ from: "note", text: "New chat started." }]);
@@ -199,13 +206,18 @@ export default function RileyChat({ desk, title, intro, active }: { desk: Desk; 
       </div>
 
       <form className="bar" onSubmit={submitTyped}>
-        <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={listening ? "Listening…" : "Type a message"} disabled={busy} />
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder={listening ? "Listening…" : speaking ? "Riley is speaking…" : "Type a message"}
+          disabled={busy || listening || speaking}
+        />
         {voice && (
-          <button type="button" className={`mic${listening ? " on" : ""}`} onClick={toggleMic} disabled={busy} title={listening ? "Stop" : "Speak"}>
-            {listening ? "■" : "🎤"}
+          <button type="button" className={`mic${listening || speaking ? " on" : ""}`} onClick={toggleMic} disabled={busy} title={listening || speaking ? "Stop" : "Speak"}>
+            {listening || speaking ? "■" : "🎤"}
           </button>
         )}
-        <button type="submit" disabled={busy || !draft.trim()}>
+        <button type="submit" disabled={busy || listening || speaking || !draft.trim()}>
           Send
         </button>
       </form>

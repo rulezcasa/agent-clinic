@@ -12,10 +12,3 @@ export function findDrug(formulary: Drug[], written: string): Drug | undefined {
     formulary.find((d) => w.startsWith(norm(d.name)) || w.startsWith(norm(d.generic)))
   );
 }
-
-/** Every substance/class a drug could trigger an allergy for. */
-export function drugSubstances(drug: Drug): string[] {
-  return [drug.name, drug.generic, drug.drug_class, ...drug.allergens].map(norm).filter(Boolean);
-}
-
-export { norm as normalizeName };
