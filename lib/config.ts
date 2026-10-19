@@ -24,10 +24,11 @@ export const config = {
     agentName: (agent: string) => env(`KYLON_AGENT_NAME_${agent.toUpperCase()}`) ?? AGENT_NAMES[agent] ?? agent,
   },
 
+  // BAND Agent API: the backend is a BAND agent; handoffs live as events in one clinic chat room.
   band: {
-    publishUrl: env("BAND_PUBLISH_URL"),
-    apiKey: env("BAND_API_KEY"),
-    roomId: env("BAND_ROOM_ID"),
+    apiUrl: env("BAND_API_URL") ?? "https://api.band.ai/api/v1/agent",
+    apiKey: env("BAND_API_KEY"), // the backend agent's key (X-API-Key)
+    roomId: env("BAND_ROOM_ID"), // chat room id the backend agent is in
   },
 
   calcom: {

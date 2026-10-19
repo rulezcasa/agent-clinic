@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { config } from "@/lib/config";
 import { repo } from "@/lib/db";
+import { visitContext } from "@/lib/tools/band";
 import { askAgentInRoom } from "@/lib/tools/kylon";
 import type { AgentName } from "@/lib/types";
 
@@ -49,6 +50,8 @@ function fillMissing(schema: z.ZodObject, raw: unknown): unknown {
 export async function runAgent<S extends z.ZodObject>(call: AgentCall<S>): Promise<z.infer<S>> {
   const taskId = randomUUID().slice(0, 8);
   const log = { visit_id: call.visitId ?? null, session_id: call.sessionId ?? null, channel: "kylon" as const };
+  // Shared context: what the other agents handed on for this visit, read back from BAND.
+  if (call.visitId) call = { ...call, data: { ...(call.data as Record<string, unknown>), band_context: await visitContext(call.visitId) } };
 
   await repo.addMessage({
     ...log,

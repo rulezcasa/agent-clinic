@@ -18,7 +18,7 @@ body {
   font: 16px/1.5 system-ui, -apple-system, sans-serif;
 }
 
-.chat {
+.desk {
   max-width: 640px;
   height: 100dvh;
   margin: 0 auto;
@@ -27,6 +27,28 @@ body {
   flex-direction: column;
   gap: 12px;
 }
+
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+.tabs button {
+  padding: 8px 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+.tabs button.on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+
+.chat {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.chat[hidden] { display: none; }
 
 .chat header { display: flex; align-items: center; justify-content: space-between; }
 .chat h1 { font-size: 18px; margin: 0; }

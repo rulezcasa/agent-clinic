@@ -42,7 +42,16 @@ async function loadPatient(id: string): Promise<Patient> {
 
 // ---------- 1–4. Patient chat with Riley: booking and check-in ----------
 
-export async function chatTurn(input: { session_id?: string; message: string }) {
+/** Which front-desk tab the patient is talking to Riley from. */
+export type Desk = "booking" | "checkin";
+
+const DESK_INSTRUCTION: Record<Desk, string> = {
+  booking: "Reply to the patient on the clinic website. They want to book an appointment.",
+  checkin:
+    "Reply to the patient at the clinic's check-in desk. They are here for a booked appointment: ask for their full name and date of birth, then use action verify_identity.",
+};
+
+export async function chatTurn(input: { session_id?: string; message: string; desk: Desk }) {
   const session = input.session_id ? await repo.getSession(input.session_id) : await repo.createSession();
   if (!session) throw notFound("chat session");
 
@@ -50,15 +59,17 @@ export async function chatTurn(input: { session_id?: string; message: string }) 
   const patient = session.patient_id ? await repo.getPatient(session.patient_id) : null;
   // Riley's memory of this chat: the last 30 patient/Riley lines (filter first — the session also holds Kylon task logs).
   const history = (await repo.listMessages({ session_id: session.id })).filter((m) => m.channel === "patient_chat").slice(-30);
-  const slots = visit ? [] : (await getFreeSlots()).map((s) => s.start);
+  // Check-in never books, so Riley only sees open slots on the booking desk.
+  const slots = visit || input.desk === "checkin" ? [] : (await getFreeSlots()).map((s) => s.start);
 
   await repo.addMessage({ visit_id: visit?.id ?? null, session_id: session.id, channel: "patient_chat", sender: "patient", recipient: "riley", body: input.message, payload: null });
 
   const riley = await runAgent({
     agent: "riley",
-    kind: "chat",
-    instruction: "Reply to the patient on the clinic website.",
+    kind: input.desk === "checkin" ? "checkin" : "chat",
+    instruction: DESK_INSTRUCTION[input.desk],
     data: {
+      desk: input.desk,
       visit: visit && { id: visit.id, status: visit.status, slot_start: visit.slot_start },
       known_patient: patient && { id: patient.id, full_name: patient.full_name },
       available_slots: slots,
