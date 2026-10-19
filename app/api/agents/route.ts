@@ -1,5 +1,5 @@
 import { route } from "@/lib/http";
 import { agentProfiles } from "@/lib/tools/masky";
 
-/** Agent faces/voices (Masky) for the chat page and staff timeline. */
+/** Agent names, roles and faces (Masky avatar stills) for the front end. */
 export const GET = route(async () => agentProfiles());

@@ -7,8 +7,6 @@ const NewPatient = z.object({
   dob: z.string().min(8).max(10),
   email: z.string().email(),
   phone: z.string().max(20).nullish(),
-  insurance_payer: z.string().max(80).nullish(),
-  insurance_member_id: z.string().max(40).nullish(),
 });
 const Body = z
   .object({ patient_id: z.string().uuid().nullish(), patient: NewPatient.nullish(), slot: z.string().min(10), reason: z.string().max(500).nullish() })

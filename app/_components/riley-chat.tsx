@@ -22,12 +22,12 @@ interface ChatResponse {
 }
 
 /** How long the patient can pause before their turn is sent. */
-const SILENCE_MS = 2500;
+const SILENCE_MS = 1200;
 
 // Empty WAV, played on the first click so the browser lets later replies play without a click.
 const SILENT = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
 
-export default function RileyChat({ desk, title, intro, active }: { desk: Desk; title: string; intro: string; active: boolean }) {
+export default function RileyChat({ desk, title, intro, active, avatar }: { desk: Desk; title: string; intro: string; active: boolean; avatar: string | null }) {
   const [lines, setLines] = useState<Line[]>([{ from: "note", text: intro }]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -184,11 +184,18 @@ export default function RileyChat({ desk, title, intro, active }: { desk: Desk; 
   return (
     <section className="chat" hidden={!active}>
       <header>
-        <div>
-          <h1>{title}</h1>
-          <small>{busy ? "Riley is replying…" : listening ? "Listening…" : sessionId ? `Session ${sessionId.slice(0, 8)}` : "New chat"}</small>
+        <div className="who">
+          {avatar && <img className={`face${speaking ? " talking" : ""}`} src={avatar} alt="Riley" />}
+          <div>
+            <h1>{title}</h1>
+            <small>{listening ? "Listening…" : speaking ? "Speaking…" : "Front desk"}</small>
+          </div>
         </div>
-        <button onClick={newChat}>New chat</button>
+        {sessionId && (
+          <button className="ghost" onClick={newChat}>
+            New chat
+          </button>
+        )}
       </header>
 
       <div className="log" ref={log}>
@@ -196,13 +203,19 @@ export default function RileyChat({ desk, title, intro, active }: { desk: Desk; 
           <div key={i} className={`msg ${l.from}`}>
             {l.text}
             {l.audio && (
-              <button onClick={() => play(l.audio!)} title="Play again">
-                🔊
+              <button className="replay" onClick={() => play(l.audio!)} title="Play again" aria-label="Play again">
+                ▶
               </button>
             )}
           </div>
         ))}
-        {busy && <div className="msg note">Riley is replying…</div>}
+        {busy && (
+          <div className="msg riley typing" aria-label="Riley is replying">
+            <span />
+            <span />
+            <span />
+          </div>
+        )}
       </div>
 
       <form className="bar" onSubmit={submitTyped}>
@@ -213,15 +226,15 @@ export default function RileyChat({ desk, title, intro, active }: { desk: Desk; 
           disabled={busy || listening || speaking}
         />
         {voice && (
-          <button type="button" className={`mic${listening || speaking ? " on" : ""}`} onClick={toggleMic} disabled={busy} title={listening || speaking ? "Stop" : "Speak"}>
+          <button type="button" className={`icon mic${listening || speaking ? " on" : ""}`} onClick={toggleMic} disabled={busy} title={listening || speaking ? "Stop" : "Speak"}>
             {listening || speaking ? "■" : "🎤"}
           </button>
         )}
-        <button type="submit" disabled={busy || listening || speaking || !draft.trim()}>
-          Send
+        <button type="submit" className="icon send" disabled={busy || listening || speaking || !draft.trim()} title="Send" aria-label="Send">
+          ↑
         </button>
       </form>
-      {!voice && <small style={{ color: "var(--muted)" }}>Voice input needs Chrome or Safari. You can still type.</small>}
+      {!voice && <small className="hint">Voice input needs Chrome or Safari. You can still type.</small>}
     </section>
   );
 }

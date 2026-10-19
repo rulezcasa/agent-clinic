@@ -16,9 +16,22 @@ interface QueueVisit {
 }
 
 /** Visits still in consult. Once Pax dispenses (or no prescription is needed) the consult is done and the patient leaves the queue. */
-const ACTIVE = ["CHECKED_IN", "IN_CONSULT", "RX_DRAFTED", "RX_FLAGGED", "RX_PENDING_APPROVAL", "RX_APPROVED"];
+const ACTIVE = [
+  "CHECKED_IN",
+  "IN_CONSULT",
+  "RX_DRAFTED",
+  "RX_FLAGGED",
+  "RX_PENDING_APPROVAL",
+  "RX_APPROVED",
+];
 
-const time = (iso: string | null) => (iso ? new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "");
+const time = (iso: string | null) =>
+  iso
+    ? new Date(iso).toLocaleTimeString([], {
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : "";
 
 export default function DoctorRoom({ active }: { active: boolean }) {
   const [queue, setQueue] = useState<QueueVisit[]>([]);
@@ -46,27 +59,46 @@ export default function DoctorRoom({ active }: { active: boolean }) {
   }, [refresh]);
 
   return (
-    <section className="clinic" hidden={!active}>
-      <aside className="queue">
-        <div className="queue-head">
-          <h1>Patients</h1>
-          <button onClick={refresh} disabled={loading}>
-            {loading ? "Refreshing…" : "Refresh"}
-          </button>
-        </div>
-        {error && <p className="err">{error}</p>}
-        {!queue.length && !error && <p className="muted">No one checked in yet.</p>}
-        {queue.map((v) => (
-          <button key={v.id} className={selected === v.id ? "on" : ""} onClick={() => setSelected(v.id)}>
-            <strong>{v.patient_name ?? "Unknown patient"}</strong>
-            <span>{v.reason ?? "—"}</span>
-            <small>
-              {time(v.slot_start)} · {v.status.replaceAll("_", " ").toLowerCase()}
-            </small>
-          </button>
-        ))}
-      </aside>
-      {selected ? <ConsultRoom key={selected} visitId={selected} onChange={refresh} /> : <section className="room empty muted">Pick a patient to start the consult.</section>}
+    <section className="doctor" hidden={!active}>
+      <header className="who">
+        <h1>Dr. Sage · Consult</h1>
+        <small>Listens to the consult and drafts the prescription</small>
+      </header>
+      <div className="clinic">
+        <aside className="queue">
+          <div className="queue-head">
+            <h1>Patients</h1>
+            <button onClick={refresh} disabled={loading}>
+              {loading ? "Refreshing…" : "Refresh"}
+            </button>
+          </div>
+          {error && <p className="err">{error}</p>}
+          {!queue.length && !error && (
+            <p className="muted">No one checked in yet.</p>
+          )}
+          {queue.map((v) => (
+            <button
+              key={v.id}
+              className={selected === v.id ? "on" : ""}
+              onClick={() => setSelected(v.id)}
+            >
+              <strong>{v.patient_name ?? "Unknown patient"}</strong>
+              <span>{v.reason ?? "—"}</span>
+              <small>
+                {time(v.slot_start)} ·{" "}
+                {v.status.replaceAll("_", " ").toLowerCase()}
+              </small>
+            </button>
+          ))}
+        </aside>
+        {selected ? (
+          <ConsultRoom key={selected} visitId={selected} onChange={refresh} />
+        ) : (
+          <section className="room empty muted">
+            Pick a patient to start the consult.
+          </section>
+        )}
+      </div>
     </section>
   );
 }

@@ -20,7 +20,7 @@ import { speak } from "@/lib/tools/masky";
 import { billingLines } from "@/lib/tools/finch";
 import { sendInvoiceEmail } from "@/lib/tools/n8n";
 import { compressContext } from "@/lib/tools/paritok";
-import type { Allergy, Coverage, CoverageStatus, DispensedItem, Insurance, Patient, RxIssue, RxItem, Visit } from "@/lib/types";
+import type { Allergy, DispensedItem, Insurance, Patient, RxIssue, RxItem, Visit } from "@/lib/types";
 import { insuranceFrom, runInsuranceCheck, saveInsurance } from "./insurance";
 import { transition } from "./status";
 
@@ -42,9 +42,9 @@ async function loadPatient(id: string): Promise<Patient> {
 export type Desk = "booking" | "checkin";
 
 const DESK_INSTRUCTION: Record<Desk, string> = {
-  booking: "Reply to the patient on the clinic website. They want to book an appointment.",
+  booking: "Reply to the patient on the clinic website. They want to book an appointment. Don't ask about insurance; that's taken at check-in.",
   checkin:
-    "Reply to the patient at the clinic's check-in desk. They are here for a booked appointment: ask for their full name and date of birth, and whether they have any allergies (what to, the reaction, and how severe). Once you have all of it, use action verify_identity with the allergies ([] if none).",
+    "Reply to the patient at the clinic's check-in desk. They are here for a booked appointment: ask for their full name and date of birth, and whether they have any allergies (what to, the reaction, and how severe), and their insurance (company, member id, and group number if the card has one; or that they're paying themselves). Once you have all of it, use action verify_identity with the allergies ([] if none) and the insurance (leave it null for self-pay).",
 };
 
 export async function chatTurn(input: { session_id?: string; message: string; desk: Desk }) {
@@ -116,7 +116,7 @@ async function bookFromChat(sessionId: string, riley: RileyReply, slots: string[
       email: p.email,
       phone: null,
       allergies: [],
-      insurance: p.insurance_payer && p.insurance_member_id ? { payer: p.insurance_payer, member_id: p.insurance_member_id } : null,
+      insurance: null, // taken at check-in
       history: "",
     }));
   await repo.updateSession(sessionId, { patient_id: patient.id });
@@ -188,23 +188,11 @@ export async function checkIn(input: {
 
 /**
  * Ivy checks coverage against the payer data in Supabase and posts `coverage_result: ivy → penny` on BAND (lib/visit/insurance.ts).
- * Once coverage is decided, the invoice can go out if the visit is already dispensed.
+ * Once coverage is decided (escalated = not claimed, full bill), the invoice can go out if the visit is already dispensed.
  */
 export async function runCoverage(visitId: string) {
   const visit = await runInsuranceCheck(visitId);
-  return visit.coverage_status === "ESCALATED" ? visit : tryInvoice(visit.id);
-}
-
-/** The human doctor resolves an escalated (ambiguous) coverage. */
-export async function overrideCoverage(visitId: string, c: Omit<Coverage, "source">) {
-  return saveCoverage(visitId, { ...c, source: "doctor-override" }, "doctor");
-}
-
-async function saveCoverage(visitId: string, coverage: Coverage, from: "ivy" | "doctor") {
-  const status: CoverageStatus = coverage.status === "active" ? "ACTIVE" : coverage.status === "partial" ? "PARTIAL" : "DENIED";
-  await repo.updateVisit(visitId, { coverage_status: status, coverage });
-  await publishHandoff({ from: from === "ivy" ? "ivy" : "backend", to: ["penny"], visit_id: visitId, kind: "coverage_result", payload: { ...coverage } });
-  return tryInvoice(visitId);
+  return tryInvoice(visit.id);
 }
 
 // ---------- 7–9. Consult → Dr. Sage drafts → doctor edits and saves (= approves) → Pax ----------
@@ -326,7 +314,7 @@ export async function approveRx(visitId: string, approvedBy: string, edited: Edi
 /** Runs once the visit is DISPENSED and coverage is decided (whichever finishes last calls it). */
 async function tryInvoice(visitId: string): Promise<Visit> {
   let visit = await loadVisit(visitId);
-  if (visit.status !== "DISPENSED" || !["ACTIVE", "PARTIAL", "DENIED"].includes(visit.coverage_status)) return visit;
+  if (visit.status !== "DISPENSED" || !["ACTIVE", "PARTIAL", "DENIED", "ESCALATED"].includes(visit.coverage_status)) return visit;
   const patient = await loadPatient(visit.patient_id);
 
   const lines = await billingLines({ visit_type: visit.visit_type, procedures: visit.procedures, dispensed: visit.dispensed ?? [] });
@@ -342,6 +330,8 @@ async function tryInvoice(visitId: string): Promise<Visit> {
       coverage: formatCents(math.coverage_cents),
       balance: formatCents(math.balance_cents),
       coverage_status: visit.coverage_status,
+      // Why insurance wasn't claimed, when Ivy couldn't verify it.
+      insurance_not_claimed_reason: visit.coverage_escalation_reason,
     },
     schema: PennyNote,
     visitId: visit.id,
@@ -399,7 +389,6 @@ export async function waitingForDoctor() {
   return visits.flatMap((v) => [
     ...(v.status === "RX_PENDING_APPROVAL" ? [{ visit_id: v.id, item: "approve prescription" }] : []),
     ...(v.status === "RX_FLAGGED" ? [{ visit_id: v.id, item: "pharmacy flagged the prescription" }] : []),
-    ...(v.coverage_status === "ESCALATED" ? [{ visit_id: v.id, item: "resolve ambiguous coverage" }] : []),
     ...(v.history_update && !v.history_update_approved && v.status !== "CANCELLED" ? [{ visit_id: v.id, item: "approve history update" }] : []),
   ]);
 }

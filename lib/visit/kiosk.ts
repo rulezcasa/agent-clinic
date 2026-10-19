@@ -78,7 +78,7 @@ export async function kioskCheckIn(input: {
 /** Book on Cal.com exactly like the chat does; the visit row arrives via Cal.com → n8n → /api/booking. */
 export async function kioskBook(input: {
   patient_id?: string | null;
-  patient?: { full_name: string; dob: string; email: string; phone?: string | null; insurance_payer?: string | null; insurance_member_id?: string | null } | null;
+  patient?: { full_name: string; dob: string; email: string; phone?: string | null } | null;
   slot: string;
   reason?: string | null;
 }) {
@@ -99,7 +99,7 @@ export async function kioskBook(input: {
       email: n.email,
       phone: n.phone ?? null,
       allergies: [],
-      insurance: n.insurance_payer && n.insurance_member_id ? { payer: n.insurance_payer, member_id: n.insurance_member_id } : null,
+      insurance: null, // taken at check-in
       history: "",
     });
   }

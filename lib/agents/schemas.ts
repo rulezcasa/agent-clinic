@@ -16,7 +16,7 @@ export const RileyReply = z.object({
   reply: z.string().describe("What Riley says to the patient, warm and brief."),
   action: z
     .enum(["none", "book", "verify_identity"])
-    .describe("book = patient agreed to a slot and gave name, DOB, email; verify_identity = patient gave name + DOB at check-in."),
+    .describe("book = patient agreed to a slot and gave name, DOB, email; verify_identity = patient gave name + DOB, allergies and insurance (or self-pay) at check-in."),
   slot: z.string().nullable().describe("ISO start time copied exactly from available_slots when action=book."),
   patient_id: z.string().nullable().describe("Copy known_patient.id when the task has one."),
   identity_verified: z.boolean().nullable().describe("Your read of the match; the backend re-checks against the record."),
@@ -27,8 +27,9 @@ export const RileyReply = z.object({
       full_name: z.string(),
       dob: z.string().describe("YYYY-MM-DD"),
       email: z.string().nullable(),
-      insurance_payer: z.string().nullable(),
-      insurance_member_id: z.string().nullable(),
+      insurance_payer: z.string().nullable().describe("Check-in only: insurance company. null = self-pay."),
+      insurance_member_id: z.string().nullable().describe("Check-in only: member id on the insurance card."),
+      group_number: z.string().nullable().describe("Check-in only: group number, if the card has one."),
     })
     .nullable()
     .describe("Details the patient gave. Required for book and verify_identity."),
@@ -80,7 +81,7 @@ export const IvyDecision = z.object({
   plan: z.string(),
   coverage_pct: Pct.describe("Percent of the visit the insurer pays."),
   copay_cents: z.number().int().min(0),
-  status: z.enum(["covered", "partial", "denied", "needs_review"]).describe("needs_review = escalate to the human doctor; never guess."),
+  status: z.enum(["covered", "partial", "denied", "needs_review"]).describe("needs_review = can't be verified (unclear or contradictory); never guess. Insurance then isn't claimed and the patient pays the full bill."),
   coverage_by_category: z
     .object({ visit: Pct, procedure: Pct, rx: Pct })
     .nullable()
@@ -97,6 +98,12 @@ export const IvyVerification = IvyDecision.extend({
   summary: z
     .string()
     .describe("Two or three plain sentences for the other agents: approved or not, network status, coverage left. Quote amounts verbatim; never compute."),
+  escalation_reason: z
+    .string()
+    .nullable()
+    .describe(
+      "Required when status is needs_review (yours, or facts.status): in one to three sentences, why the insurance can't be verified — what doesn't add up. Null otherwise.",
+    ),
 });
 export type IvyVerification = z.infer<typeof IvyVerification>;
 

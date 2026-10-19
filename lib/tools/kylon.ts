@@ -32,9 +32,9 @@ export async function postMessage(text: string, mentionIds: string[]): Promise<v
   await kylon(["message", "send", "--room", room(), "--text", text, ...(mentionIds.length ? ["--mentions", mentionIds.join(",")] : [])]);
 }
 
-/** Recent top-level room messages, newest first. */
-export async function recentMessages(limit = 30): Promise<RoomMessage[]> {
-  const out = await kylon(["history", "recent", "--room", room(), "--limit", String(limit)]);
+/** Recent top-level room messages, newest first (only those after `since`, if given). */
+export async function recentMessages(limit = 30, since?: string): Promise<RoomMessage[]> {
+  const out = await kylon(["history", "recent", "--room", room(), "--limit", String(limit), ...(since ? ["--since", since] : [])]);
   return (out.details?.messages as RoomMessage[]) ?? [];
 }
 
@@ -61,11 +61,13 @@ export function extractJson(text: string): unknown {
  */
 export async function askAgentInRoom(agent: AgentName, taskId: string, text: string): Promise<unknown> {
   const name = config.kylon.agentName(agent);
+  // Only read messages from around when the task was posted (a minute of slack for clock skew).
+  const since = new Date(Date.now() - 60_000).toISOString();
   await postMessage(text, [need(config.kylon.agentId(agent), `KYLON_AGENT_ID_${agent.toUpperCase()}`)]);
   const deadline = Date.now() + config.kylon.replyTimeoutMs;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, config.kylon.pollIntervalMs));
-    const reply = (await recentMessages()).find((m) => m.senderType === "agent" && m.senderName === name && m.content.includes(taskId));
+    const reply = (await recentMessages(20, since)).find((m) => m.senderType === "agent" && m.senderName === name && m.content.includes(taskId));
     if (reply) return extractJson(reply.content);
   }
   throw new Error(`Kylon: no reply from ${name} for task ${taskId} within ${config.kylon.replyTimeoutMs}ms`);

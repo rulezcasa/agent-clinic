@@ -18,7 +18,7 @@ export const config = {
     roomId: env("KYLON_ROOM_ID"), // #clinic-ops
     workspaceId: env("KYLON_WORKSPACE_ID"),
     replyTimeoutMs: Number(env("KYLON_REPLY_TIMEOUT_MS") ?? 90_000),
-    pollIntervalMs: Number(env("KYLON_POLL_INTERVAL_MS") ?? 2_000),
+    pollIntervalMs: Number(env("KYLON_POLL_INTERVAL_MS") ?? 500),
     // Agent member ids (for --mentions) and display names (to match replies): `kylon workspace room member list <room>`
     agentId: (agent: string) => env(`KYLON_AGENT_ID_${agent.toUpperCase()}`),
     agentName: (agent: string) => env(`KYLON_AGENT_NAME_${agent.toUpperCase()}`) ?? AGENT_NAMES[agent] ?? agent,
@@ -72,9 +72,6 @@ export const config = {
     ownerId: env("MASKY_OWNER_ID"),
     avatarId: (agent: string) => env(`MASKY_AVATAR_ID_${agent.toUpperCase()}`),
     speakTimeoutMs: Number(env("MASKY_SPEAK_TIMEOUT_MS") ?? 30_000),
-    avatar: (agent: string) => env(`MASKY_AVATAR_${agent.toUpperCase()}`),
-    video: (agent: string) => env(`MASKY_VIDEO_${agent.toUpperCase()}`),
-    voice: (agent: string) => env(`MASKY_VOICE_${agent.toUpperCase()}`),
   },
 
   // Who Ivy checks network status for: this clinic (facility) and its doctor of record (NPI). Keys in network_providers.

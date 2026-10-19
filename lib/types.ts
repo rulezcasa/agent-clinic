@@ -58,7 +58,7 @@ export type VisitStatus = (typeof VISIT_STATUSES)[number];
 
 export type CoverageStatus = "NOT_STARTED" | "PENDING" | "ACTIVE" | "PARTIAL" | "DENIED" | "ESCALATED";
 
-/** Ivy's coverage decision (or the doctor's override), used by the invoice math. */
+/** Ivy's coverage decision, used by the invoice math. */
 export interface Coverage {
   status: "active" | "partial" | "denied";
   plan: string;
@@ -67,7 +67,7 @@ export interface Coverage {
   /** The patient always pays at least this much (integer cents). */
   copay_cents: number;
   notes: string;
-  source: string; // e.g. "adal:payer-portal" or "doctor-override"
+  source: string; // e.g. "payer-data (ivy)" or "no-insurance"
 }
 
 // ---------- Payer data (Ivy verifies against these) ----------
@@ -178,6 +178,7 @@ export interface Visit {
   identity_verified: boolean;
   coverage_status: CoverageStatus;
   coverage: Coverage | null;
+  coverage_escalation_reason: string | null; // why Ivy couldn't verify the insurance (coverage_status ESCALATED → not claimed, full bill)
   consult_notes: string | null;
   procedures: string[];
   rx: Rx | null;

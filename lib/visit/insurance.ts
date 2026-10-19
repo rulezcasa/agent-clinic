@@ -5,9 +5,11 @@
  *      saved on the patient, the visit goes to coverage PENDING and the route returns right away.
  *   2. In the background (runCoverage) Ivy checks it: the insurance comes from the patient record, and
  *      code looks up member, plan dates, this clinic's and doctor's network status and what's left of the deductible / out-of-pocket max (lib/rules/insurance.ts).
- *      Ivy gets those plus band_context on Kylon (`check_coverage`), can only make the status stricter.
+ *      Ivy gets those plus band_context on Kylon (`check_coverage`), can only make the status stricter, and when the
+ *      result is needs_review she writes why (saved as visits.coverage_escalation_reason). Nobody resolves it:
+ *      unverified insurance just isn't claimed, so the patient pays the full bill.
  *   3. The visit's coverage is saved and Ivy's result goes on BAND as `coverage_result: ivy → penny`
- *      (plus `coverage_escalation: ivy → doctor` when it needs review). Every number comes from code.
+ *      Every number comes from code.
  */
 import { IvyVerification } from "@/lib/agents/schemas";
 import { runAgent } from "@/lib/agents/run";
@@ -80,11 +82,11 @@ export async function startInsuranceCheck(input: {
   return { accepted: true, visit_id: visit.id, coverage_status: "PENDING" as const, already_running: false };
 }
 
-const DECISION: Record<VerificationStatus, "approved" | "rejected" | "needs_review"> = {
+const DECISION: Record<VerificationStatus, "approved" | "rejected" | "not_claimed"> = {
   covered: "approved",
   partial: "approved",
   denied: "rejected",
-  needs_review: "needs_review",
+  needs_review: "not_claimed", // can't be verified → full bill
 };
 const COVERAGE_STATUS: Record<VerificationStatus, CoverageStatus> = { covered: "ACTIVE", partial: "PARTIAL", denied: "DENIED", needs_review: "ESCALATED" };
 
@@ -133,6 +135,7 @@ async function checkCoverage(visit: Visit): Promise<Visit> {
   let facts: InsuranceFacts | null = null;
   let summary: string;
   let notes: string | null = null;
+  let escalationReason: string | null = null;
   let problems: string[];
 
   if (!patient.insurance) {
@@ -147,7 +150,8 @@ async function checkCoverage(visit: Visit): Promise<Visit> {
       kind: "check_coverage",
       instruction:
         "Decide coverage for this visit from the plan facts (checked by the system): " +
-        "is it valid, are this clinic and its doctor in network, how much coverage is left. Never compute amounts; quote `amounts` verbatim.",
+        "is it valid, are this clinic and its doctor in network, how much coverage is left. Never compute amounts; quote `amounts` verbatim. " +
+        "Your status can't be looser than facts.status. If it can't be verified (needs_review), the insurance won't be claimed and the patient pays in full; explain why in escalation_reason.",
       data: {
         insurance: patient.insurance,
         facts,
@@ -167,20 +171,22 @@ async function checkCoverage(visit: Visit): Promise<Visit> {
     problems = [...new Set([...facts.problems, ...ivy.problems])];
     summary = ivy.summary;
     notes = ivy.notes;
+    escalationReason = status === "needs_review" ? ivy.escalation_reason : null;
+    if (status === "needs_review" && !escalationReason) throw new Error("Ivy escalated coverage without an escalation_reason");
   }
 
-  const coverage: Coverage | null =
-    status === "needs_review"
-      ? null
-      : {
-          status: status === "covered" ? "active" : status,
-          plan: facts?.plan ?? "self-pay",
-          insurer_pays_pct: status === "denied" || !facts?.insurer_pays_pct ? { visit: 0, procedure: 0, rx: 0 } : facts.insurer_pays_pct,
-          copay_cents: status === "denied" ? 0 : (facts?.copay_cents ?? 0),
-          notes: [summary, ...problems].join(" "),
-          source: facts ? "payer-data (ivy)" : "no-insurance",
-        };
-  const updated = await repo.updateVisit(visit.id, { coverage_status: COVERAGE_STATUS[status], coverage });
+  // Denied or unverified: nothing is claimed, the patient pays the full bill.
+  const claimed = status === "covered" || status === "partial";
+  const coverage: Coverage = {
+    status: status === "covered" ? "active" : claimed ? "partial" : "denied",
+    plan: facts?.plan ?? "self-pay",
+    insurer_pays_pct: claimed && facts?.insurer_pays_pct ? facts.insurer_pays_pct : { visit: 0, procedure: 0, rx: 0 },
+    copay_cents: claimed ? (facts?.copay_cents ?? 0) : 0,
+    notes: status === "needs_review" ? `Insurance not claimed: ${escalationReason}` : [summary, ...problems].join(" "),
+    source: facts ? "payer-data (ivy)" : "no-insurance",
+  };
+  // A re-check clears an old escalation reason.
+  const updated = await repo.updateVisit(visit.id, { coverage_status: COVERAGE_STATUS[status], coverage, coverage_escalation_reason: escalationReason });
 
   const decision = DECISION[status];
   const result = {
@@ -191,8 +197,8 @@ async function checkCoverage(visit: Visit): Promise<Visit> {
     member_id: patient.insurance?.member_id ?? null,
     hospital_in_network: facts?.hospital_in_network ?? null,
     doctor_in_network: facts?.doctor_in_network ?? null,
-    insurer_pays_pct: coverage?.insurer_pays_pct ?? null,
-    copay_cents: coverage?.copay_cents ?? null,
+    insurer_pays_pct: coverage.insurer_pays_pct,
+    copay_cents: coverage.copay_cents,
     balance_coverage: {
       deductible_remaining_cents: facts?.deductible_remaining_cents ?? null,
       deductible_remaining: money(facts?.deductible_remaining_cents ?? null),
@@ -203,9 +209,9 @@ async function checkCoverage(visit: Visit): Promise<Visit> {
     problems,
     summary,
     notes,
+    escalation_reason: escalationReason,
   };
   // Penny's invoice task gets this in its band_context.
   await publishHandoff({ from: "ivy", to: ["penny"], visit_id: visit.id, kind: "coverage_result", payload: result });
-  if (decision === "needs_review") await publishHandoff({ from: "ivy", to: ["doctor"], visit_id: visit.id, kind: "coverage_escalation", payload: result });
   return updated;
 }

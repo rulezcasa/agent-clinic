@@ -59,12 +59,14 @@ export const AGENT_PROFILES: Record<AgentName, { display: string; role: string }
   penny: { display: "Penny", role: "Billing" },
 };
 
-export function agentProfiles() {
+/** Each agent's face: its Masky avatar's still image (null if none is set in Masky). */
+export async function agentProfiles() {
+  const { avatars } = await getJson<{ avatars: { avatarId: string; avatarImageUrl: string | null }[] }>(`${config.masky.apiUrl}/avatars`, {
+    apiKey: need(config.masky.apiKey, "MASKY_API_KEY"),
+  });
   return (Object.keys(AGENT_PROFILES) as AgentName[]).map((name) => ({
     name,
     ...AGENT_PROFILES[name],
-    avatar_url: config.masky.avatar(name) ?? null,
-    video_url: config.masky.video(name) ?? null,
-    voice_url: config.masky.voice(name) ?? null,
+    avatar_url: avatars.find((a) => a.avatarId === config.masky.avatarId(name))?.avatarImageUrl ?? null,
   }));
 }
