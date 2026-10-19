@@ -1,0 +1,87 @@
+/** Central config. Every tool is called for real; set its env vars in .env.local (see .env.example). */
+
+const env = (k: string): string | undefined => {
+  const v = process.env[k];
+  return v && v.trim() !== "" ? v.trim() : undefined;
+};
+
+const AGENT_NAMES: Record<string, string> = { riley: "Riley", sage: "Dr. Sage", ivy: "Ivy", pax: "Pax", penny: "Penny" };
+
+export const config = {
+  supabase: {
+    url: env("SUPABASE_URL") ?? env("NEXT_PUBLIC_SUPABASE_URL"),
+    serviceRoleKey: env("SUPABASE_SERVICE_ROLE_KEY"),
+  },
+
+  kylon: {
+    bin: env("KYLON_BIN") ?? `${process.env.HOME}/.kylon/bin/kylon`,
+    roomId: env("KYLON_ROOM_ID"), // #clinic-ops
+    workspaceId: env("KYLON_WORKSPACE_ID"),
+    replyTimeoutMs: Number(env("KYLON_REPLY_TIMEOUT_MS") ?? 90_000),
+    pollIntervalMs: Number(env("KYLON_POLL_INTERVAL_MS") ?? 2_000),
+    // Agent member ids (for --mentions) and display names (to match replies): `kylon workspace room member list <room>`
+    agentId: (agent: string) => env(`KYLON_AGENT_ID_${agent.toUpperCase()}`),
+    agentName: (agent: string) => env(`KYLON_AGENT_NAME_${agent.toUpperCase()}`) ?? AGENT_NAMES[agent] ?? agent,
+  },
+
+  band: {
+    publishUrl: env("BAND_PUBLISH_URL"),
+    apiKey: env("BAND_API_KEY"),
+    roomId: env("BAND_ROOM_ID"),
+  },
+
+  calcom: {
+    apiUrl: env("CALCOM_API_URL") ?? "https://api.cal.com/v2",
+    apiKey: env("CALCOM_API_KEY"),
+    eventTypeId: env("CALCOM_EVENT_TYPE_ID"),
+    timeZone: env("CLINIC_TIME_ZONE") ?? "America/Los_Angeles",
+  },
+
+  n8n: {
+    invoiceWebhookUrl: env("N8N_INVOICE_WEBHOOK_URL"),
+    // shared secret n8n sends on inbound calls (x-clinic-secret header)
+    sharedSecret: env("N8N_SHARED_SECRET"),
+  },
+
+  rocketride: {
+    uri: env("ROCKETRIDE_URI"),
+    apiKey: env("ROCKETRIDE_APIKEY"),
+    pipelineToken: env("ROCKETRIDE_PIPELINE_TOKEN"), // the deployed rx-safety pipeline
+  },
+
+  adal: {
+    eligibilityUrl: env("ADAL_ELIGIBILITY_URL"),
+    memoryUrl: env("ADAL_MEMORY_URL"),
+    apiKey: env("ADAL_API_KEY"),
+  },
+
+  celesto: {
+    sessionUrl: env("CELESTO_SESSION_URL"),
+    apiKey: env("CELESTO_API_KEY"),
+  },
+
+  paritok: {
+    apiUrl: env("PARITOK_API_URL"),
+    apiKey: env("PARITOK_API_KEY"),
+  },
+
+  finch: {
+    apiUrl: env("FINCH_API_URL"),
+    apiKey: env("FINCH_API_KEY"),
+  },
+
+  masky: {
+    avatar: (agent: string) => env(`MASKY_AVATAR_${agent.toUpperCase()}`),
+    video: (agent: string) => env(`MASKY_VIDEO_${agent.toUpperCase()}`),
+    voice: (agent: string) => env(`MASKY_VOICE_${agent.toUpperCase()}`),
+  },
+
+  // Staff routes (doctor approve/reject etc.) require `authorization: Bearer <token>` when set.
+  staffToken: env("CLINIC_STAFF_TOKEN"),
+};
+
+/** Throws a clear error when a required env var is missing. */
+export function need<T>(value: T | undefined, name: string): T {
+  if (value === undefined) throw new Error(`${name} is not set`);
+  return value;
+}
