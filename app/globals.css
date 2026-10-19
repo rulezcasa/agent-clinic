@@ -1,0 +1,73 @@
+:root {
+  --bg: #f6f7f9;
+  --card: #fff;
+  --text: #1c2024;
+  --muted: #6b7280;
+  --line: #e3e6ea;
+  --accent: #0f766e;
+  --patient: #e7f3f1;
+  --error: #b42318;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.5 system-ui, -apple-system, sans-serif;
+}
+
+.chat {
+  max-width: 640px;
+  height: 100dvh;
+  margin: 0 auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chat header { display: flex; align-items: center; justify-content: space-between; }
+.chat h1 { font-size: 18px; margin: 0; }
+.chat header small { color: var(--muted); }
+
+.log {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.msg { max-width: 85%; padding: 8px 12px; border-radius: 12px; white-space: pre-wrap; }
+.msg.riley { align-self: flex-start; background: var(--bg); }
+.msg.patient { align-self: flex-end; background: var(--patient); }
+.msg.note { align-self: center; color: var(--muted); font-size: 14px; background: none; }
+.msg.error { align-self: center; color: var(--error); font-size: 14px; background: none; }
+.msg button { margin-left: 6px; border: 0; background: none; cursor: pointer; color: var(--accent); padding: 0; }
+
+.bar { display: flex; gap: 8px; }
+.bar input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font: inherit;
+}
+.bar button, .chat header button {
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  font: inherit;
+  cursor: pointer;
+}
+.bar button.mic { background: var(--accent); color: #fff; border-color: var(--accent); }
+.bar button.mic.on { background: var(--error); border-color: var(--error); }
+.bar button:disabled { opacity: 0.5; cursor: default; }

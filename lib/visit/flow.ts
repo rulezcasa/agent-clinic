@@ -17,6 +17,7 @@ import { deriveQuantity } from "@/lib/rules/quantity";
 import { checkEligibility, writeMemoryNote } from "@/lib/tools/adal";
 import { publishHandoff } from "@/lib/tools/band";
 import { createBooking, getFreeSlots } from "@/lib/tools/calcom";
+import { speak } from "@/lib/tools/masky";
 import { billingLines } from "@/lib/tools/finch";
 import { sendInvoiceEmail } from "@/lib/tools/n8n";
 import { compressContext } from "@/lib/tools/paritok";
@@ -47,7 +48,8 @@ export async function chatTurn(input: { session_id?: string; message: string }) 
 
   const visit = session.visit_id ? await repo.getVisit(session.visit_id) : null;
   const patient = session.patient_id ? await repo.getPatient(session.patient_id) : null;
-  const history = (await repo.listMessages({ session_id: session.id, limit: 20 })).filter((m) => m.channel === "patient_chat");
+  // Riley's memory of this chat: the last 30 patient/Riley lines (filter first — the session also holds Kylon task logs).
+  const history = (await repo.listMessages({ session_id: session.id })).filter((m) => m.channel === "patient_chat").slice(-30);
   const slots = visit ? [] : (await getFreeSlots()).map((s) => s.start);
 
   await repo.addMessage({ visit_id: visit?.id ?? null, session_id: session.id, channel: "patient_chat", sender: "patient", recipient: "riley", body: input.message, payload: null });
@@ -84,8 +86,11 @@ export async function chatTurn(input: { session_id?: string; message: string }) 
     if (!res.verified) reply = "Sorry, those details don't match an appointment we have. Could you check your full name and date of birth?";
   }
 
-  await repo.addMessage({ visit_id: current?.id ?? null, session_id: session.id, channel: "patient_chat", sender: "riley", recipient: "patient", body: reply, payload: { action: riley.action } });
-  return { session_id: session.id, reply, action: riley.action, visit: current, checked_in: checkedIn };
+  // Riley's Masky voice says the reply; the chat page plays audio_url.
+  const audioUrl = await speak("riley", reply);
+
+  await repo.addMessage({ visit_id: current?.id ?? null, session_id: session.id, channel: "patient_chat", sender: "riley", recipient: "patient", body: reply, payload: { action: riley.action, audio_url: audioUrl } });
+  return { session_id: session.id, reply, audio_url: audioUrl, action: riley.action, visit: current, checked_in: checkedIn };
 }
 
 /** Step 2: Riley picked a slot with the patient; the backend books it on Cal.com. */

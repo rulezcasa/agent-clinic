@@ -71,6 +71,12 @@ export const config = {
   },
 
   masky: {
+    apiUrl: env("MASKY_API_URL") ?? "https://masky.ai/api",
+    apiKey: env("MASKY_API_KEY"),
+    // From `GET /api/avatars`: avatarOwnerUserId, and each agent's avatarId (its voice is set in Masky)
+    ownerId: env("MASKY_OWNER_ID"),
+    avatarId: (agent: string) => env(`MASKY_AVATAR_ID_${agent.toUpperCase()}`),
+    speakTimeoutMs: Number(env("MASKY_SPEAK_TIMEOUT_MS") ?? 30_000),
     avatar: (agent: string) => env(`MASKY_AVATAR_${agent.toUpperCase()}`),
     video: (agent: string) => env(`MASKY_VIDEO_${agent.toUpperCase()}`),
     voice: (agent: string) => env(`MASKY_VOICE_${agent.toUpperCase()}`),

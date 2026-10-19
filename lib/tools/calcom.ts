@@ -23,10 +23,14 @@ export async function getFreeSlots(days = 5): Promise<Slot[]> {
     apiKey: need(config.calcom.apiKey, "CALCOM_API_KEY"),
     headers: { "cal-api-version": "2024-09-04" },
   });
-  return Object.values(res.data ?? {})
-    .flat()
-    .map((s) => ({ start: s.start }))
-    .slice(0, 12);
+  // A few slots per day (morning to afternoon) so Riley can offer every day, not just today.
+  return Object.values(res.data ?? {}).flatMap((day) => spread(day, 6).map((s) => ({ start: s.start })));
+}
+
+/** Pick `n` evenly spaced items, keeping the first. */
+function spread<T>(items: T[], n: number): T[] {
+  if (items.length <= n) return items;
+  return Array.from({ length: n }, (_, i) => items[Math.floor((i * items.length) / n)]);
 }
 
 export async function createBooking(input: {
