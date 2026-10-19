@@ -4,7 +4,7 @@
  * Coverage per line = floor(line total × insurer_pays_pct[category] / 100),
  * capped so the patient pays at least the copay.
  */
-import type { Coverage, InvoiceLine } from "@/lib/types";
+import type { Coverage, DispensedItem, InvoiceLine } from "@/lib/types";
 
 export interface LineInput {
   code: string;
@@ -42,6 +42,24 @@ export function computeInvoice(lines: LineInput[], coverage: Coverage | null) {
   );
   const balance_cents = charges_cents - coverage_cents;
   return { lines: priced, charges_cents, coverage_cents, balance_cents };
+}
+
+/**
+ * The bill's line items: one flat doctor consultation fee, plus each drug Pax dispensed at its
+ * formulary unit price (captured at dispense time).
+ */
+export function billingLines(input: { consultation_fee_cents: number; dispensed: DispensedItem[] }): LineInput[] {
+  assertCents(input.consultation_fee_cents, "consultation fee");
+  return [
+    { code: "CONSULT", description: "Doctor consultation", category: "visit", quantity: 1, unit_price_cents: input.consultation_fee_cents },
+    ...input.dispensed.map((d) => ({
+      code: `RX-${d.drug_id.slice(0, 8)}`,
+      description: `Pharmacy: ${d.name}`,
+      category: "rx" as const,
+      quantity: d.quantity,
+      unit_price_cents: d.unit_price_cents,
+    })),
+  ];
 }
 
 export const formatCents = (c: number) => `$${(c / 100).toFixed(2)}`;
