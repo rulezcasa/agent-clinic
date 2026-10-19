@@ -12,8 +12,8 @@ import { HttpError, notFound } from "@/lib/http";
 import { findDrug } from "@/lib/rules/formulary";
 import { verifyIdentity } from "@/lib/rules/identity";
 import { billingLines, computeInvoice, formatCents } from "@/lib/rules/invoice";
+import { invoiceEmail, invoiceNotes } from "@/lib/rules/invoice-email";
 import { deriveQuantity } from "@/lib/rules/quantity";
-import { writeMemoryNote } from "@/lib/tools/adal";
 import { publishHandoff } from "@/lib/tools/band";
 import { createBooking, getFreeSlots } from "@/lib/tools/calcom";
 import { speak } from "@/lib/tools/masky";
@@ -319,6 +319,7 @@ async function tryInvoice(visitId: string): Promise<Visit> {
   // Consultation fee + pharmacy charges, all priced in code; Penny only explains the bill.
   const lines = billingLines({ consultation_fee_cents: config.billing.consultationFeeCents, dispensed: visit.dispensed ?? [] });
   const math = computeInvoice(lines, visit.coverage);
+  const notes = invoiceNotes(visit, math.balance_cents);
   const insured = visit.coverage && visit.coverage.status !== "denied";
   const penny = await runAgent({
     agent: "penny",
@@ -343,17 +344,27 @@ async function tryInvoice(visitId: string): Promise<Visit> {
       coverage_status: visit.coverage_status,
       // Why insurance wasn't claimed, when Ivy couldn't verify it.
       insurance_not_claimed_reason: visit.coverage_escalation_reason,
+      // Comments printed on the bill; mention them, don't contradict them.
+      notes,
     },
     schema: PennyNote,
     visitId: visit.id,
   });
 
-  const invoice = { ...math, explanation: penny.explanation };
+  const invoice = { ...math, notes, explanation: penny.explanation };
   visit = await transition(visit, "INVOICED", { invoice });
-  await sendInvoiceEmail({ visit_id: visit.id, patient: { name: patient.full_name, email: patient.email }, invoice });
+  // Booking requires an email, so every patient who gets this far has one.
+  if (!patient.email) throw new Error(`patient ${patient.id} has no email for the invoice`);
+  const email = invoiceEmail({
+    clinic_name: config.clinic.name,
+    patient: { name: patient.full_name, email: patient.email },
+    visit,
+    invoice,
+  });
+  await sendInvoiceEmail({ visit_id: visit.id, email, invoice });
 
-  const note = await writeMemoryNote({ patient_id: patient.id, visit_id: visit.id, summary: visitSummary(visit) });
-  await repo.addMemoryNote({ patient_id: patient.id, visit_id: visit.id, note });
+  // Dr. Sage reads these at the patient's next consult.
+  await repo.addMemoryNote({ patient_id: patient.id, visit_id: visit.id, note: visitSummary(visit) });
   return transition(visit, "CLOSED");
 }
 

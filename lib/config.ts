@@ -44,17 +44,6 @@ export const config = {
     sharedSecret: env("N8N_SHARED_SECRET"),
   },
 
-  adal: {
-    eligibilityUrl: env("ADAL_ELIGIBILITY_URL"),
-    memoryUrl: env("ADAL_MEMORY_URL"),
-    apiKey: env("ADAL_API_KEY"),
-  },
-
-  celesto: {
-    sessionUrl: env("CELESTO_SESSION_URL"),
-    apiKey: env("CELESTO_API_KEY"),
-  },
-
   paritok: {
     apiUrl: env("PARITOK_API_URL") ?? "https://www.paritok.com/api/compress",
     apiKey: env("PARITOK_API_KEY"), // pk_live_… from paritok.com → dashboard → API keys
@@ -76,6 +65,7 @@ export const config = {
 
   // Who Ivy checks network status for: this clinic (facility) and its doctor of record (NPI). Keys in network_providers.
   clinic: {
+    name: env("CLINIC_NAME") ?? "Agent Clinic", // shown on the invoice email
     facilityId: env("CLINIC_FACILITY_ID") ?? "agent-clinic",
     doctorNpi: env("CLINIC_DOCTOR_NPI") ?? "1000000001",
   },

@@ -164,6 +164,7 @@ export interface Invoice {
   charges_cents: number;
   coverage_cents: number;
   balance_cents: number;
+  notes: string[]; // comments on the bill for the patient (e.g. insurance couldn't be verified), from code
   explanation: string; // Penny's words; numbers come from code
 }
 
