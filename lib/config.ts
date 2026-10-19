@@ -77,6 +77,12 @@ export const config = {
     voice: (agent: string) => env(`MASKY_VOICE_${agent.toUpperCase()}`),
   },
 
+  // Who Ivy checks network status for: this clinic (facility) and its doctor of record (NPI). Keys in network_providers.
+  clinic: {
+    facilityId: env("CLINIC_FACILITY_ID") ?? "agent-clinic",
+    doctorNpi: env("CLINIC_DOCTOR_NPI") ?? "1000000001",
+  },
+
   // Staff routes (doctor edit/approve etc.) require `authorization: Bearer <token>` when set.
   staffToken: env("CLINIC_STAFF_TOKEN"),
 };

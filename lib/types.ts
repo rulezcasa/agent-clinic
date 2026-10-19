@@ -70,6 +70,45 @@ export interface Coverage {
   source: string; // e.g. "adal:payer-portal" or "doctor-override"
 }
 
+// ---------- Payer data (Ivy verifies against these) ----------
+
+export interface InsurancePlan {
+  id: string;
+  payer: string;
+  plan_name: string;
+  group_number: string | null;
+  coverage_pct_visit: number;
+  coverage_pct_procedure: number;
+  coverage_pct_rx: number;
+  copay_cents: number;
+  deductible_cents: number;
+  oop_max_cents: number;
+  effective_from: string; // YYYY-MM-DD
+  effective_to: string | null;
+}
+
+export interface InsuranceMember {
+  member_id: string;
+  plan_id: string;
+  full_name: string;
+  dob: string;
+  status: "active" | "terminated" | "suspended";
+  deductible_met_cents: number;
+  oop_spent_cents: number;
+  annual_visit_limit: number | null; // null = unlimited
+  visits_used: number;
+}
+
+export type ProviderType = "facility" | "doctor";
+
+export interface NetworkProvider {
+  plan_id: string;
+  provider_type: ProviderType;
+  provider_key: string;
+  name: string;
+  in_network: boolean;
+}
+
 export interface RxItem {
   drug: string; // as written by Dr. Sage; resolved against the formulary
   dose: string;

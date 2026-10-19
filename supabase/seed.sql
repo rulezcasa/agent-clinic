@@ -25,3 +25,32 @@ insert into drugs (id, name, generic, drug_class, indication, price_cents, stock
 on conflict (id) do update set
   name = excluded.name, generic = excluded.generic, drug_class = excluded.drug_class, indication = excluded.indication,
   price_cents = excluded.price_cents, stock_qty = excluded.stock_qty, allergens = excluded.allergens, interacts_with = excluded.interacts_with;
+
+-- Payer data for Ivy (needs 0002_insurance.sql). The clinic is facility 'agent-clinic'; its doctor of record is NPI 1000000001.
+-- Jane: active, in network, part of the deductible met.  Sam: clinic in network, doctor out of network → partial.
+-- Maria: terminated → denied.  Leo: visit limit used up → partial.
+insert into insurance_plans (id, payer, plan_name, group_number, coverage_pct_visit, coverage_pct_procedure, coverage_pct_rx, copay_cents, deductible_cents, oop_max_cents, effective_from, effective_to) values
+  ('acme-silver',     'Acme Health',      'Acme Health Silver', 'GRP-7781', 80, 70, 60, 2500, 150000, 500000, '2026-01-01', '2026-12-31'),
+  ('bluepeak-bronze', 'Blue Peak Health', 'Blue Peak Bronze',   'BPK-0042', 60, 60, 50, 4000, 300000, 800000, '2026-01-01', '2026-12-31')
+on conflict (id) do update set
+  payer = excluded.payer, plan_name = excluded.plan_name, group_number = excluded.group_number,
+  coverage_pct_visit = excluded.coverage_pct_visit, coverage_pct_procedure = excluded.coverage_pct_procedure, coverage_pct_rx = excluded.coverage_pct_rx,
+  copay_cents = excluded.copay_cents, deductible_cents = excluded.deductible_cents, oop_max_cents = excluded.oop_max_cents,
+  effective_from = excluded.effective_from, effective_to = excluded.effective_to;
+
+insert into insurance_members (member_id, plan_id, full_name, dob, status, deductible_met_cents, oop_spent_cents, annual_visit_limit, visits_used) values
+  ('ACM-449-2210', 'acme-silver',     'Jane Doe',     '1990-04-12', 'active',     90000,  120000, 20,   3),
+  ('ACM-449-3307', 'acme-silver',     'Maria Garcia', '1985-09-30', 'terminated', 0,      0,      20,   0),
+  ('ACM-449-5120', 'acme-silver',     'Leo Park',     '2001-02-14', 'active',     150000, 210000, 6,    6),
+  ('BPK-100-2001', 'bluepeak-bronze', 'Sam Rivera',   '1978-11-03', 'active',     50000,  50000,  null, 1)
+on conflict (member_id) do update set
+  plan_id = excluded.plan_id, full_name = excluded.full_name, dob = excluded.dob, status = excluded.status,
+  deductible_met_cents = excluded.deductible_met_cents, oop_spent_cents = excluded.oop_spent_cents,
+  annual_visit_limit = excluded.annual_visit_limit, visits_used = excluded.visits_used;
+
+insert into network_providers (plan_id, provider_type, provider_key, name, in_network) values
+  ('acme-silver',     'facility', 'agent-clinic', 'Agent Clinic',            true),
+  ('acme-silver',     'doctor',   '1000000001',   'Clinic doctor of record', true),
+  ('bluepeak-bronze', 'facility', 'agent-clinic', 'Agent Clinic',            true),
+  ('bluepeak-bronze', 'doctor',   '1000000001',   'Clinic doctor of record', false)
+on conflict (plan_id, provider_type, provider_key) do update set name = excluded.name, in_network = excluded.in_network;

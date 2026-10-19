@@ -89,6 +89,17 @@ export const IvyDecision = z.object({
 });
 export type IvyDecision = z.infer<typeof IvyDecision>;
 
+/** Ivy's verification from code-checked plan facts. She posts it on BAND; the money comes from the system. */
+export const IvyVerification = IvyDecision.extend({
+  hospital_in_network: z.boolean().nullable().describe("Copy facts.hospital_in_network."),
+  doctor_in_network: z.boolean().nullable().describe("Copy facts.doctor_in_network."),
+  problems: z.array(z.string()).describe("Each reason the insurance is not fully covered or could not be verified."),
+  summary: z
+    .string()
+    .describe("Two or three plain sentences for the other agents: approved or not, network status, coverage left. Quote amounts verbatim; never compute."),
+});
+export type IvyVerification = z.infer<typeof IvyVerification>;
+
 // ---------- Pax — Pharmacy ----------
 
 export const PaxReview = z.object({
