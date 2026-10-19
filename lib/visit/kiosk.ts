@@ -64,7 +64,6 @@ export async function kioskCheckIn(input: {
   complaint?: string | null;
   insurance_payer?: string | null;
   insurance_member_id?: string | null;
-  group_number?: string | null;
 }) {
   let visit = await repo.getVisit(input.visit_id);
   if (!visit) throw notFound("visit");

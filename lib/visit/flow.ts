@@ -43,7 +43,7 @@ export type Desk = "booking" | "checkin";
 const DESK_INSTRUCTION: Record<Desk, string> = {
   booking: "Reply to the patient on the clinic website. They want to book an appointment. Don't ask about insurance; that's taken at check-in.",
   checkin:
-    "Reply to the patient at the clinic's check-in desk. They are here for a booked appointment: ask for their full name and date of birth, and whether they have any allergies (what to, the reaction, and how severe), and their insurance (company, member id, and group number if the card has one; or that they're paying themselves). Once you have all of it, use action verify_identity with the allergies ([] if none) and the insurance (leave it null for self-pay).",
+    "Reply to the patient at the clinic's check-in desk. They are here for a booked appointment: ask for their full name and date of birth, and whether they have any allergies (what to, the reaction, and how severe), and their insurance (company and member id; or that they're paying themselves). Once you have all of it, use action verify_identity with the allergies ([] if none) and the insurance (leave it null for self-pay).",
 };
 
 export async function chatTurn(input: { session_id?: string; message: string; desk: Desk }) {

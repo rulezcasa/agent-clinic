@@ -26,18 +26,18 @@ const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: config.calcom.t
 const money = (c: number | null) => (c === null ? null : formatCents(c));
 
 /** Payer + member id are both needed to verify anything; anything less is ignored. */
-export function insuranceFrom(i: { insurance_payer?: string | null; insurance_member_id?: string | null; group_number?: string | null }): Insurance | null {
+export function insuranceFrom(i: { insurance_payer?: string | null; insurance_member_id?: string | null }): Insurance | null {
   const payer = i.insurance_payer?.trim();
   const member_id = i.insurance_member_id?.trim().toUpperCase();
   if (!payer || !member_id) return null;
-  return { payer, member_id, ...(i.group_number?.trim() ? { group_number: i.group_number.trim() } : {}) };
+  return { payer, member_id };
 }
 
 /** Keep the record's insurance up to date with what the patient just told Riley. */
 export async function saveInsurance(patient: Patient, insurance: Insurance | null): Promise<Patient> {
   if (!insurance) return patient;
   const same = patient.insurance?.member_id === insurance.member_id && patient.insurance?.payer === insurance.payer;
-  if (same && (!insurance.group_number || insurance.group_number === patient.insurance?.group_number)) return patient;
+  if (same) return patient;
   return repo.updatePatient(patient.id, { insurance: { ...(same && patient.insurance ? patient.insurance : {}), ...insurance } });
 }
 
@@ -51,7 +51,6 @@ export async function startInsuranceCheck(input: {
   dob: string;
   insurance_payer?: string | null;
   insurance_member_id?: string | null;
-  group_number?: string | null;
 }) {
   const visit = await repo.getVisit(input.visit_id);
   if (!visit) throw notFound("visit");
@@ -100,7 +99,7 @@ async function loadFacts(patient: Patient, insurance: Insurance): Promise<Insura
       ])
     : [null, null];
   return verifyInsuranceFacts({
-    claimed: { full_name: patient.full_name, dob: patient.dob, payer: insurance.payer, member_id: insurance.member_id, group_number: insurance.group_number },
+    claimed: { full_name: patient.full_name, member_id: insurance.member_id },
     member,
     plan,
     facility,

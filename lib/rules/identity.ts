@@ -13,8 +13,10 @@ export function normalizeDob(input: string): string | null {
   return null;
 }
 
+export const sameName = (a: string, b: string) => normName(a) === normName(b);
+
 export function verifyIdentity(patient: Pick<Patient, "full_name" | "dob">, claimed: { full_name: string; dob: string }) {
-  const nameOk = normName(patient.full_name) === normName(claimed.full_name);
+  const nameOk = sameName(patient.full_name, claimed.full_name);
   const dobOk = normalizeDob(claimed.dob) === patient.dob;
   return { verified: nameOk && dobOk, nameOk, dobOk };
 }

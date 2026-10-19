@@ -29,7 +29,6 @@ export const RileyReply = z.object({
       email: z.string().nullable(),
       insurance_payer: z.string().nullable().describe("Check-in only: insurance company. null = self-pay."),
       insurance_member_id: z.string().nullable().describe("Check-in only: member id on the insurance card."),
-      group_number: z.string().nullable().describe("Check-in only: group number, if the card has one."),
     })
     .nullable()
     .describe("Details the patient gave. Required for book and verify_identity."),

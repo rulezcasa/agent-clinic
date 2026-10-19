@@ -11,7 +11,6 @@ const Body = z.object({
   complaint: z.string().max(500).nullish(),
   insurance_payer: z.string().max(80).nullish(),
   insurance_member_id: z.string().max(40).nullish(),
-  group_number: z.string().max(40).nullish(),
 });
 
 /** Riley's kiosk: check in for today's visit. Same path as the chat: BAND intake → Ivy + Dr. Sage, then Ivy's insurance check (result posted on BAND). */

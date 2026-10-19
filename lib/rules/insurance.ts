@@ -9,24 +9,20 @@
  *                          0 for the visit when the visit limit is used up, all 0 when denied
  */
 import type { InsuranceMember, InsurancePlan, NetworkProvider } from "@/lib/types";
-import { verifyIdentity } from "./identity";
+import { sameName } from "./identity";
 
 export type VerificationStatus = "covered" | "partial" | "denied" | "needs_review";
 
+/** The member is matched on member id (the lookup) + full name only. */
 export interface ClaimedInsurance {
   full_name: string;
-  dob: string; // YYYY-MM-DD
-  payer: string;
   member_id: string;
-  group_number?: string | null;
 }
 
 export interface InsuranceFacts {
   status: VerificationStatus; // what the facts alone say; Ivy can only make it stricter
   member_found: boolean;
-  name_dob_match: boolean | null;
-  payer_match: boolean | null;
-  group_match: boolean | null; // null = not given or plan has none
+  name_match: boolean | null;
   member_status: InsuranceMember["status"] | null;
   plan_in_effect: boolean | null;
   plan: string | null;
@@ -42,8 +38,6 @@ export interface InsuranceFacts {
   visits_remaining: number | null;
   problems: string[];
 }
-
-const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
 export const STATUS_RANK: Record<VerificationStatus, number> = { covered: 0, partial: 1, denied: 2, needs_review: 3 };
 
@@ -63,9 +57,7 @@ export function verifyInsuranceFacts(input: {
   const empty: InsuranceFacts = {
     status: "needs_review",
     member_found: false,
-    name_dob_match: null,
-    payer_match: null,
-    group_match: null,
+    name_match: null,
     member_status: null,
     plan_in_effect: null,
     plan: null,
@@ -88,19 +80,17 @@ export function verifyInsuranceFacts(input: {
     return empty;
   }
 
-  const name_dob_match = verifyIdentity(member, { full_name: claimed.full_name, dob: claimed.dob }).verified;
-  const payer_match = norm(plan.payer) === norm(claimed.payer);
-  const group_match = claimed.group_number && plan.group_number ? norm(claimed.group_number) === norm(plan.group_number) : null;
+  const name_match = sameName(member.full_name, claimed.full_name);
   const plan_in_effect = plan.effective_from <= today && (!plan.effective_to || today <= plan.effective_to);
   const hospital_in_network = input.facility?.in_network ?? false;
   const doctor_in_network = input.doctor?.in_network ?? false;
   const visits_remaining = member.annual_visit_limit === null ? null : Math.max(0, member.annual_visit_limit - member.visits_used);
 
-  // Details that don't match the member: escalate and reveal nothing about someone else's plan.
-  if (!name_dob_match) problems.push("name or date of birth does not match the member on file");
-  if (!payer_match) problems.push("payer does not match the member id");
-  if (group_match === false) problems.push("group number does not match the plan");
-  if (problems.length) return { ...empty, member_found: true, name_dob_match, payer_match, group_match };
+  // Name doesn't match the member: escalate and reveal nothing about someone else's plan.
+  if (!name_match) {
+    problems.push("name does not match the member on file");
+    return { ...empty, member_found: true, name_match };
+  }
 
   // Not eligible here at all → denied. Eligible but something isn't covered → partial.
   let status: VerificationStatus = "covered";
@@ -127,9 +117,7 @@ export function verifyInsuranceFacts(input: {
   return {
     status,
     member_found: true,
-    name_dob_match,
-    payer_match,
-    group_match,
+    name_match,
     member_status: member.status,
     plan_in_effect,
     plan: plan.plan_name,

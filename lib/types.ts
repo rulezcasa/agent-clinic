@@ -14,7 +14,6 @@ export interface Insurance {
   payer: string;
   member_id: string;
   plan?: string;
-  group_number?: string;
 }
 
 export interface Patient {

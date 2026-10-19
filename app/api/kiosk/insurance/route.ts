@@ -10,7 +10,6 @@ const Body = z.object({
   dob: z.string().min(8).max(10),
   insurance_payer: z.string().max(80).nullish(),
   insurance_member_id: z.string().max(40).nullish(),
-  group_number: z.string().max(40).nullish(),
 });
 
 /**
