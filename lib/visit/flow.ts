@@ -12,13 +12,12 @@ import { HttpError, notFound } from "@/lib/http";
 import { severeAllergyBlock } from "@/lib/rules/allergy";
 import { findDrug } from "@/lib/rules/formulary";
 import { verifyIdentity } from "@/lib/rules/identity";
-import { computeInvoice, formatCents } from "@/lib/rules/invoice";
+import { billingLines, computeInvoice, formatCents } from "@/lib/rules/invoice";
 import { deriveQuantity } from "@/lib/rules/quantity";
 import { writeMemoryNote } from "@/lib/tools/adal";
 import { publishHandoff } from "@/lib/tools/band";
 import { createBooking, getFreeSlots } from "@/lib/tools/calcom";
 import { speak } from "@/lib/tools/masky";
-import { billingLines } from "@/lib/tools/finch";
 import { sendInvoiceEmail } from "@/lib/tools/n8n";
 import { compressContext } from "@/lib/tools/paritok";
 import { runRxSafety } from "@/lib/tools/rocketride";
@@ -340,18 +339,30 @@ async function tryInvoice(visitId: string): Promise<Visit> {
   if (visit.status !== "DISPENSED" || !["ACTIVE", "PARTIAL", "DENIED"].includes(visit.coverage_status)) return visit;
   const patient = await loadPatient(visit.patient_id);
 
-  const lines = await billingLines({ visit_type: visit.visit_type, procedures: visit.procedures, dispensed: visit.dispensed ?? [] });
+  // Consultation fee + pharmacy charges, all priced in code; Penny only explains the bill.
+  const lines = billingLines({ consultation_fee_cents: config.billing.consultationFeeCents, dispensed: visit.dispensed ?? [] });
   const math = computeInvoice(lines, visit.coverage);
+  const insured = visit.coverage && visit.coverage.status !== "denied";
   const penny = await runAgent({
     agent: "penny",
     kind: "invoice",
-    instruction: "Write the invoice explanation for the patient. The amounts are final.",
+    instruction:
+      "Write the patient's itemized bill: each line with its charge, what insurance covers and what the patient owes, then the totals and the outstanding balance. " +
+      "If amount_due is $0.00, say clearly that insurance covers the bill and there is nothing to pay. The amounts are final; quote them verbatim.",
     data: {
       patient_name: patient.full_name,
-      lines: math.lines.map((l) => ({ description: l.description, total: formatCents(l.total_cents), covered: formatCents(l.covered_cents) })),
+      lines: math.lines.map((l) => ({
+        description: l.description,
+        quantity: l.quantity,
+        unit_price: formatCents(l.unit_price_cents),
+        total: formatCents(l.total_cents),
+        insurance_covers: formatCents(l.covered_cents),
+      })),
       charges: formatCents(math.charges_cents),
-      coverage: formatCents(math.coverage_cents),
-      balance: formatCents(math.balance_cents),
+      insurance_covers: formatCents(math.coverage_cents),
+      amount_due: formatCents(math.balance_cents),
+      nothing_to_pay: math.balance_cents === 0,
+      insurance: insured ? { plan: visit.coverage!.plan, status: visit.coverage!.status, copay: formatCents(visit.coverage!.copay_cents) } : null,
       coverage_status: visit.coverage_status,
     },
     schema: PennyNote,

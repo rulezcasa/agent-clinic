@@ -89,6 +89,11 @@ export const config = {
     doctorNpi: env("CLINIC_DOCTOR_NPI") ?? "1000000001",
   },
 
+  // Penny's bill: flat doctor consultation fee (integer cents), $100 by default.
+  billing: {
+    consultationFeeCents: Number(env("CONSULTATION_FEE_CENTS") ?? 10_000),
+  },
+
   // Staff routes (doctor approve/reject etc.) require `authorization: Bearer <token>` when set.
   staffToken: env("CLINIC_STAFF_TOKEN"),
 };
