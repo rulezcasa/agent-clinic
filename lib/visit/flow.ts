@@ -4,7 +4,7 @@
  *
  * Two things are always code, never AI: the severe allergy block and the invoice math.
  */
-import { IvyDecision, PaxReview, PennyNote, RileyReply, SageBriefing, SageDraft } from "@/lib/agents/schemas";
+import { PaxReview, PennyNote, RileyReply, SageBriefing, SageDraft } from "@/lib/agents/schemas";
 import { runAgent } from "@/lib/agents/run";
 import { config } from "@/lib/config";
 import { repo } from "@/lib/db";
@@ -14,7 +14,7 @@ import { findDrug } from "@/lib/rules/formulary";
 import { verifyIdentity } from "@/lib/rules/identity";
 import { computeInvoice, formatCents } from "@/lib/rules/invoice";
 import { deriveQuantity } from "@/lib/rules/quantity";
-import { checkEligibility, writeMemoryNote } from "@/lib/tools/adal";
+import { writeMemoryNote } from "@/lib/tools/adal";
 import { publishHandoff } from "@/lib/tools/band";
 import { createBooking, getFreeSlots } from "@/lib/tools/calcom";
 import { speak } from "@/lib/tools/masky";
@@ -22,7 +22,8 @@ import { billingLines } from "@/lib/tools/finch";
 import { sendInvoiceEmail } from "@/lib/tools/n8n";
 import { compressContext } from "@/lib/tools/paritok";
 import { runRxSafety } from "@/lib/tools/rocketride";
-import type { Coverage, CoverageStatus, DispensedItem, Drug, Patient, RxIssue, RxItem, Visit } from "@/lib/types";
+import type { Coverage, CoverageStatus, DispensedItem, Drug, Insurance, Patient, RxIssue, RxItem, Visit } from "@/lib/types";
+import { insuranceFrom, runInsuranceCheck, saveInsurance } from "./insurance";
 import { transition } from "./status";
 
 /** How many times Dr. Sage revises on its own after a flag before the human doctor steps in. */
@@ -90,7 +91,7 @@ export async function chatTurn(input: { session_id?: string; message: string; de
     await bookFromChat(session.id, riley, slots);
   } else if (riley.action === "verify_identity") {
     if (!riley.patient) throw new Error("Riley asked to verify identity without name + DOB");
-    const res = await checkIn({ visit, claimed: riley.patient, sessionId: session.id });
+    const res = await checkIn({ visit, claimed: riley.patient, insurance: insuranceFrom(riley.patient), sessionId: session.id });
     current = res.visit;
     checkedIn = res.verified;
     // Code decides identity, so the patient hears the code's answer.
@@ -143,8 +144,11 @@ export async function createVisitFromBooking(b: { uid: string; start: string; pa
   return visit;
 }
 
-/** Step 4–5: identity check (code), then the intake packet goes to Ivy and Dr. Sage on BAND. */
-export async function checkIn(input: { visit: Visit | null; claimed: { full_name: string; dob: string }; sessionId?: string }) {
+/**
+ * Step 4–5: identity check (code), then the intake packet goes to Ivy and Dr. Sage on BAND.
+ * Insurance Riley collected is saved on the patient first; Ivy pulls it from Supabase by patient id (runCoverage).
+ */
+export async function checkIn(input: { visit: Visit | null; claimed: { full_name: string; dob: string }; insurance?: Insurance | null; sessionId?: string }) {
   let visit = input.visit;
   if (!visit) {
     // Patient arrived in a new chat: find their booked visit by name + DOB.
@@ -152,8 +156,9 @@ export async function checkIn(input: { visit: Visit | null; claimed: { full_name
     visit = p ? ((await repo.listVisits({ patient_id: p.id, status: ["BOOKED"] }))[0] ?? null) : null;
     if (!visit) return { verified: false, visit: null };
   }
-  const patient = await loadPatient(visit.patient_id);
+  let patient = await loadPatient(visit.patient_id);
   if (visit.status !== "BOOKED" || !verifyIdentity(patient, input.claimed).verified) return { verified: false, visit };
+  patient = await saveInsurance(patient, input.insurance ?? null);
 
   visit = await transition(visit, "CHECKED_IN", { identity_verified: true });
   if (input.sessionId) await repo.updateSession(input.sessionId, { visit_id: visit.id, patient_id: patient.id });
@@ -169,43 +174,13 @@ export async function checkIn(input: { visit: Visit | null; claimed: { full_name
 
 // ---------- 6. Coverage (runs in the background after check-in) ----------
 
-const COVERAGE_STATUS: Record<IvyDecision["status"], CoverageStatus> = {
-  covered: "ACTIVE",
-  partial: "PARTIAL",
-  denied: "DENIED",
-  needs_review: "ESCALATED",
-};
-
+/**
+ * Ivy checks coverage against the payer data in Supabase and posts `coverage_result: ivy → penny` on BAND (lib/visit/insurance.ts).
+ * Once coverage is decided, the invoice can go out if the visit is already dispensed.
+ */
 export async function runCoverage(visitId: string) {
-  const visit = await loadVisit(visitId);
-  const patient = await loadPatient(visit.patient_id);
-  await repo.updateVisit(visit.id, { coverage_status: "PENDING" });
-
-  const portal = patient.insurance ? await checkEligibility(patient, patient.insurance) : null;
-  const ivy = await runAgent({
-    agent: "ivy",
-    kind: "check_coverage",
-    instruction: "Decide coverage for this visit from the payer-portal findings.",
-    data: { insurance: patient.insurance, portal },
-    schema: IvyDecision,
-    visitId: visit.id,
-  });
-
-  if (ivy.status === "needs_review") {
-    await repo.updateVisit(visit.id, { coverage_status: "ESCALATED", coverage: null });
-    await publishHandoff({ from: "ivy", to: ["doctor"], visit_id: visit.id, kind: "coverage_escalation", payload: { ...ivy } });
-    return loadVisit(visit.id);
-  }
-
-  const coverage: Coverage = {
-    status: ivy.status === "covered" ? "active" : ivy.status,
-    plan: ivy.plan,
-    insurer_pays_pct: ivy.coverage_by_category ?? { visit: ivy.coverage_pct, procedure: ivy.coverage_pct, rx: ivy.coverage_pct },
-    copay_cents: ivy.copay_cents,
-    notes: ivy.notes ?? "",
-    source: portal?.source ?? "no-insurance",
-  };
-  return saveCoverage(visit.id, coverage, "ivy");
+  const visit = await runInsuranceCheck(visitId);
+  return visit.coverage_status === "ESCALATED" ? visit : tryInvoice(visit.id);
 }
 
 /** The human doctor resolves an escalated (ambiguous) coverage. */

@@ -1,7 +1,7 @@
 /** Supabase connection (service role, server only). Tables and data live in Supabase; this only reads/writes rows. */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { config, need } from "@/lib/config";
-import type { ChatSession, Drug, MemoryNote, Message, Patient, Visit, VisitStatus } from "@/lib/types";
+import type { ChatSession, Drug, InsuranceMember, InsurancePlan, MemoryNote, Message, NetworkProvider, Patient, ProviderType, Visit, VisitStatus } from "@/lib/types";
 
 // Survive Next.js dev hot reloads.
 const g = globalThis as unknown as { __supabase?: SupabaseClient };
@@ -125,5 +125,23 @@ export const repo = {
       await db().from("memory_notes").select("*").eq("patient_id", patientId).order("created_at", { ascending: true }),
       "listMemoryNotes",
     ) as MemoryNote[];
+  },
+
+  /** Exact match only (member ids are stored upper-case). */
+  async getInsuranceMember(memberId: string) {
+    return check(
+      await db().from("insurance_members").select("*").eq("member_id", memberId.trim().toUpperCase()).maybeSingle(),
+      "getInsuranceMember",
+    ) as InsuranceMember | null;
+  },
+  async getInsurancePlan(id: string) {
+    return check(await db().from("insurance_plans").select("*").eq("id", id).maybeSingle(), "getInsurancePlan") as InsurancePlan | null;
+  },
+  /** The plan's network entry for one provider; null = not listed (treated as out of network). */
+  async getNetworkProvider(planId: string, type: ProviderType, key: string) {
+    return check(
+      await db().from("network_providers").select("*").eq("plan_id", planId).eq("provider_type", type).eq("provider_key", key).maybeSingle(),
+      "getNetworkProvider",
+    ) as NetworkProvider | null;
   },
 };
