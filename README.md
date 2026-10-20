@@ -4,6 +4,12 @@
 
 ---
 
+## Team
+Built at the Universal hackathon at SF, Won the 2nd place !
+
+---
+
+
 ## Problem
 
 Most of a small clinic's day goes to admin work around each visit, not to the patient:
@@ -132,8 +138,3 @@ supabase/
   seed.sql                  Formulary, insurance plans/members/networks
 proxy.ts                    Forwards /api/* to BACKEND_URL on frontend-only deploys
 ```
-
-
-## Team
-
-Built at the Universal hackathon at SF.
