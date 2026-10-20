@@ -1,6 +1,6 @@
 # Agent Clinic
 
-### Built at the Universal hackathon at SF, Won the 2nd place !
+### Built for the Universal hackathon at SF, Won the 2nd place !
 
 **A small clinic's front desk, scribe, insurance desk, pharmacy and billing, run fully by AI agents. A human doctor still approves every prescription (human-in-the-loop for critical decisions).** 
 
