@@ -1,6 +1,6 @@
 # Agent Clinic
 
-**A small clinic's front desk, scribe, insurance desk, pharmacy and billing, run fully by AI agents. A human doctor still approves every prescription (human-in-the-loop for critical decisions). 
+**A small clinic's front desk, scribe, insurance desk, pharmacy and billing, run fully by AI agents. A human doctor still approves every prescription (human-in-the-loop for critical decisions).** 
 
 ---
 
