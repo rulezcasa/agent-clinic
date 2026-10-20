@@ -4,10 +4,7 @@
 
 ---
 
-## Team
 Built at the Universal hackathon at SF, Won the 2nd place !
-
----
 
 
 ## Problem
